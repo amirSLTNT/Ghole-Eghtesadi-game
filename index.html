@@ -13276,7 +13276,14 @@ function getMiniEntryCost(kind) {
       }
       mark('bizTabSolo', solo); mark('bizTabSolo2', solo);
       mark('bizTabPartner', !solo); mark('bizTabPartner2', !solo);
-      try { if (solo) { drawBiz('bizList'); drawBiz('bizList2'); } else { renderPartnerBizLists(); } } catch(e) {}
+      try {
+        if (solo) {
+          if (typeof drawBiz === 'function') { drawBiz('bizList'); drawBiz('bizList2'); }
+          else if (typeof render === 'function') render();
+        } else {
+          renderPartnerBizLists();
+        }
+      } catch(e) { console.warn('switchBizTab', e); try { renderPartnerBizLists(); } catch(e2) {} }
     }
 
     function getMyPartnerUid() {
@@ -13769,6 +13776,26 @@ function getMiniEntryCost(kind) {
         }, 10000);
       } catch(e) {}
     })();
+
+
+    
+    // export partnership API to window (onclick handlers)
+    try {
+      window.switchBizTab = switchBizTab;
+      window.showCreatePartnership = showCreatePartnership;
+      window.submitPartnershipCreate = submitPartnershipCreate;
+      window.acceptPartnershipInvite = acceptPartnershipInvite;
+      window.confirmAcceptPartnership = confirmAcceptPartnership;
+      window.rejectPartnershipInvite = rejectPartnershipInvite;
+      window.collectPartnerProfit = collectPartnerProfit;
+      window.showPartnerManage = showPartnerManage;
+      window.proposePartnerHire = proposePartnerHire;
+      window.proposePartnerEquip = proposePartnerEquip;
+      window.votePartnerProposal = votePartnerProposal;
+      window.renderPartnerBizLists = renderPartnerBizLists;
+      window.pullPartnerInvites = pullPartnerInvites;
+      window.tickPartnerships = tickPartnerships;
+    } catch (eExp) { console.warn('partner export', eExp); }
 
 
     loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js')
