@@ -2567,6 +2567,8 @@
       <input id="regPass" type="password" maxlength="64" autocomplete="new-password">
       <label>تکرار رمز عبور</label>
       <input id="regPass2" type="password" maxlength="64" autocomplete="new-password">
+      <label>کد دعوت (اختیاری)</label>
+      <input id="regInviteCode" type="text" maxlength="20" dir="ltr" placeholder="اگر دوستی شما را دعوت کرده">
       <div class="auth-err" id="regErr"></div>
       <button class="btn-up" style="width:100%;padding:12px;margin-top:10px;justify-content:center" onclick="registerAccountUI()">ساخت حساب</button>
       <div class="auth-switch">قبلاً حساب ساخته‌اید؟ <button type="button" onclick="showAuthLogin()">ورود</button></div>
@@ -2838,6 +2840,7 @@
             <button type="button" class="btn-sec" style="width:100%;padding:11px;justify-content:center;margin-bottom:8px" onclick="showHelpGuide()">📖 راهنما</button>
             <button type="button" class="btn-up" id="profileAuthBtn" style="width:100%;padding:11px;justify-content:center" onclick="openAccountFromProfile()">ورود / ساخت حساب کاربری</button>
             <div id="profileAccountInfo" style="display:none;margin-top:8px;font-size:12px;color:var(--muted);line-height:1.6;text-align:center"></div>
+            <div id="profileInviteBtnBox" style="margin-top:8px"></div>
           </div>
           <div class="stats-row">
             <div>
@@ -5984,6 +5987,7 @@ const ASSETS = {
 function updateProfileAccountBox() {
       var btn = document.getElementById('profileAuthBtn');
       var info = document.getElementById('profileAccountInfo');
+      var inviteBox = document.getElementById('profileInviteBtnBox');
       if (!btn) return;
       var aid = null;
       var user = '';
@@ -6015,12 +6019,16 @@ function updateProfileAccountBox() {
           info.innerHTML = 'وارد شده: <b style="color:#fff">' + escHtml(user || 'بازیکن') + '</b>' +
             (aid ? ('<br>شناسه: <span dir="ltr" style="color:var(--primary)">' + escHtml(aid) + '</span>') : '');
         }
+        if (inviteBox) {
+          inviteBox.innerHTML = '<button type="button" class="btn-up" style="width:100%;padding:11px;justify-content:center" onclick="showInviteFriends()">🎁 دعوت از دوستان</button>';
+        }
       } else {
         btn.textContent = 'ورود / ساخت حساب کاربری';
         btn.className = 'btn-up';
         btn.setAttribute('onclick', 'openAccountFromProfile()');
         btn.style.cssText = 'width:100%;padding:11px;justify-content:center';
         if (info) { info.style.display = 'none'; info.innerHTML = ''; }
+        if (inviteBox) { inviteBox.innerHTML = ''; }
       }
     }
 
@@ -11104,6 +11112,18 @@ function getMiniEntryCost(kind) {
         html += '<button class="btn-sec" style="width:100%;margin-top:8px" onclick="bankPayInstallment()">پرداخت قسط ' + fmt(b.installment||0) + '</button>';
       }
       html += '</div>';
+      // کارت به کارت
+      var isCloudLoggedIn = !!(S.authSession && S.authSession.loggedIn);
+      html += '<div class="fin-card full" style="margin-top:10px">';
+      html += '<div class="lbl">کارت به کارت</div>';
+      if (isCloudLoggedIn) {
+        html += '<div style="font-size:12px;color:var(--muted);margin:6px 0 10px">پول نقد را مستقیم به شماره کارت بازیکن دیگری بفرست</div>';
+        html += '<button class="btn-up" style="width:100%;padding:12px" onclick="showCardToCard()">💳 کارت به کارت</button>';
+      } else {
+        html += '<div style="font-size:12px;color:var(--muted);margin:6px 0 10px">برای استفاده از کارت‌به‌کارت باید وارد حساب کاربری شوید</div>';
+        html += '<button class="btn-sec" style="width:100%;padding:12px;opacity:0.55" disabled>🔒 کارت به کارت (قفل)</button>';
+      }
+      html += '</div>';
       el.innerHTML = html;
     }
 
@@ -12595,6 +12615,27 @@ function getMiniEntryCost(kind) {
   (function () {
     'use strict';
 
+    // stub تا وقتی Firebase لود میشه، کلیک زودهنگام روی دکمه کارت‌به‌کارت خطا نده
+    window.showCardToCard = function () { toast('در حال اتصال به سرور... چند لحظه صبر کنید'); };
+    window.showInviteFriends = function () { toast('در حال اتصال به سرور... چند لحظه صبر کنید'); };
+
+    // اگه لینک دعوت (?ref=USERNAME) استفاده شده، کدش رو نگه می‌داریم تا موقع ثبت‌نام خودکار پر بشه
+    (function captureReferralFromUrl() {
+      try {
+        var ref = new URLSearchParams(window.location.search).get('ref');
+        if (ref) {
+          localStorage.setItem('aether_pending_ref', ref.trim());
+          var tryFill = function () {
+            var inp = document.getElementById('regInviteCode');
+            if (inp && !inp.value) inp.value = ref.trim();
+          };
+          tryFill();
+          document.addEventListener('DOMContentLoaded', tryFill);
+          setTimeout(tryFill, 800);
+        }
+      } catch (e) {}
+    })();
+
     // >>> پیکربندی فایربیس خودتان را اینجا جایگزین کنید <<<
     // از Firebase Console → Project settings → SDK setup and configuration بگیرید
     var firebaseConfig = {
@@ -12636,6 +12677,273 @@ function getMiniEntryCost(kind) {
       return String(u).trim().toLowerCase() + EMAIL_DOMAIN;
     }
 
+    // Firestore مقدار undefined رو قبول نمی‌کنه — قبل از ارسال هر آبجکت رو از این تابع رد می‌کنیم
+    // تا فیلدهای undefined حذف بشن و خطای «invalid data» رخ نده
+    function sanitizeForFirestore(obj) {
+      try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return obj; }
+    }
+
+    // ---------- کارت به کارت ----------
+    function randomCardNumber() {
+      var s = '6219';
+      for (var i = 0; i < 12; i++) s += Math.floor(Math.random() * 10);
+      return s;
+    }
+    function formatCard(num) {
+      return String(num || '').replace(/(.{4})/g, '$1-').replace(/-$/, '');
+    }
+    async function ensureCardNumber(uid, username) {
+      if (S.cardNumber) return S.cardNumber;
+      try {
+        var pdoc = await db.collection('players').doc(uid).get();
+        if (pdoc.exists && pdoc.data().cardNumber) {
+          S.cardNumber = pdoc.data().cardNumber;
+          return S.cardNumber;
+        }
+      } catch (e) {}
+      for (var attempt = 0; attempt < 6; attempt++) {
+        var num = randomCardNumber();
+        try {
+          await db.collection('cards').doc(num).set({ uid: uid, username: username });
+          await db.collection('players').doc(uid).set({ cardNumber: num }, { merge: true });
+          S.cardNumber = num;
+          return num;
+        } catch (e) { /* شماره تکراری بود احتمالاً — دوباره امتحان کن */ }
+      }
+      return null;
+    }
+
+    window.copyCardNumber = function (num) {
+      function fallbackCopy() {
+        try {
+          var t = document.createElement('textarea');
+          t.value = num; document.body.appendChild(t); t.select();
+          document.execCommand('copy'); document.body.removeChild(t);
+          toast('شماره کارت کپی شد');
+        } catch (e) { toast(num); }
+      }
+      try {
+        navigator.clipboard.writeText(num).then(function () { toast('شماره کارت کپی شد'); }).catch(fallbackCopy);
+      } catch (e) { fallbackCopy(); }
+    };
+
+    var _lookupTimer = null;
+    window.lookupCardOwner = function () {
+      clearTimeout(_lookupTimer);
+      var elOwner = document.getElementById('c2cOwnerName');
+      var elInput = document.getElementById('c2cDestCard');
+      if (!elOwner || !elInput) return;
+      var raw = (elInput.value || '').replace(/\D/g, '');
+      if (raw.length < 16) { elOwner.textContent = ''; return; }
+      elOwner.textContent = 'در حال جستجو...';
+      elOwner.style.color = 'var(--muted)';
+      _lookupTimer = setTimeout(function () {
+        db.collection('cards').doc(raw).get().then(function (doc) {
+          var e2 = document.getElementById('c2cOwnerName');
+          if (!e2) return;
+          if (doc.exists) {
+            e2.textContent = 'به نام: ' + (doc.data().username || 'ناشناس');
+            e2.style.color = 'var(--green)';
+          } else {
+            e2.textContent = 'کارتی با این شماره یافت نشد';
+            e2.style.color = '#ff6b7a';
+          }
+        }).catch(function () {
+          var e2 = document.getElementById('c2cOwnerName');
+          if (e2) { e2.textContent = 'خطا در جستجو'; e2.style.color = '#ff6b7a'; }
+        });
+      }, 450);
+    };
+
+    window.sendCardToCard = async function () {
+      var msg = document.getElementById('c2cMsg');
+      var raw = (document.getElementById('c2cDestCard').value || '').replace(/\D/g, '');
+      var amt = Math.floor(Number(document.getElementById('c2cAmt').value || 0));
+      function setMsg(t, color) { if (msg) { msg.textContent = t; msg.style.color = color; } }
+      if (!auth.currentUser) { setMsg('ابتدا وارد حساب شوید', '#ff6b7a'); return; }
+      if (raw.length < 16) { setMsg('شماره کارت معتبر نیست', '#ff6b7a'); return; }
+      if (!amt || amt <= 0) { setMsg('مبلغ نامعتبر است', '#ff6b7a'); return; }
+      if (amt > (S.cash || 0)) { setMsg('موجودی نقد کافی نیست', '#ff6b7a'); return; }
+      if (raw === S.cardNumber) { setMsg('نمی‌توانید برای خودتان ارسال کنید', '#ff6b7a'); return; }
+
+      setMsg('در حال ارسال...', 'var(--muted)');
+      try {
+        var cardDoc = await db.collection('cards').doc(raw).get();
+        if (!cardDoc.exists) { setMsg('کارتی با این شماره یافت نشد', '#ff6b7a'); return; }
+        var toUid = cardDoc.data().uid;
+        var toUsername = cardDoc.data().username || 'ناشناس';
+        var fromUsername = (S.authSession && S.authSession.username) || '';
+
+        S.cash = (S.cash || 0) - amt;
+        try { addTx('out', 'کارت به کارت به ' + toUsername, -amt); } catch (e) {}
+        _origSave();
+        try { render(); renderBank(); } catch (e) {}
+
+        await db.collection('transfers').add({
+          fromUid: auth.currentUser.uid, fromUsername: fromUsername, fromCard: S.cardNumber,
+          toUid: toUid, toUsername: toUsername, toCard: raw,
+          amount: amt, status: 'pending',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        queueCloudSave();
+
+        setMsg(fmt(amt) + ' به ' + toUsername + ' ارسال شد ✓', 'var(--green)');
+        try { playSfx('success'); } catch (e) {}
+        var amtInput = document.getElementById('c2cAmt');
+        if (amtInput) amtInput.value = '';
+      } catch (e) {
+        console.error(e);
+        setMsg('خطا در ارسال — دوباره امتحان کنید', '#ff6b7a');
+      }
+    };
+
+    window.showCardToCard = async function () {
+      if (!auth.currentUser) { toast('برای کارت‌به‌کارت باید وارد حساب کاربری شوید'); return; }
+      var title = document.getElementById('mTitle');
+      var body = document.getElementById('mBody');
+      var btns = document.getElementById('mBtns');
+      if (!title) return;
+      title.textContent = 'کارت به کارت';
+      body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">در حال آماده‌سازی...</div>';
+      btns.innerHTML = '<button class="btn-sec" style="width:100%;padding:10px" onclick="closeModal()">بستن</button>';
+      document.getElementById('modalBg').classList.add('show');
+
+      var uname = (S.authSession && S.authSession.username) || '';
+      var myCard = await ensureCardNumber(auth.currentUser.uid, uname);
+      if (!myCard) {
+        body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger,#EF4444)">خطا در ساخت شماره کارت. دوباره امتحان کنید.</div>';
+        return;
+      }
+
+      var html = '';
+      html += '<div class="fin-card full" style="margin-bottom:10px">';
+      html += '<div class="lbl">شماره کارت شما</div>';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px">';
+      html += '<div style="flex:1;font-weight:800;font-size:15px;direction:ltr;letter-spacing:1px;background:rgba(255,255,255,0.06);padding:10px;border-radius:10px;text-align:center">' + formatCard(myCard) + '</div>';
+      html += '<button class="btn-sec" style="padding:10px 14px" onclick="copyCardNumber(\'' + myCard + '\')">کپی</button>';
+      html += '</div></div>';
+
+      html += '<div class="fin-card full" style="margin-bottom:10px">';
+      html += '<div class="lbl">شماره کارت مقصد</div>';
+      html += '<input id="c2cDestCard" type="text" inputmode="numeric" placeholder="شماره کارت ۱۶ رقمی" style="width:100%;margin-top:6px" oninput="lookupCardOwner()">';
+      html += '<div id="c2cOwnerName" style="font-size:12px;margin-top:6px;min-height:16px"></div>';
+      html += '</div>';
+
+      html += '<div class="fin-card full" style="margin-bottom:10px">';
+      html += '<div class="lbl">مبلغ</div>';
+      html += '<input id="c2cAmt" type="number" placeholder="مبلغ (نقد)" style="width:100%;margin-top:6px">';
+      html += '<div style="font-size:11px;color:var(--muted);margin-top:6px">موجودی نقد شما: ' + fmt(S.cash || 0) + '</div>';
+      html += '</div>';
+
+      html += '<button class="btn-up" style="width:100%;padding:12px" onclick="sendCardToCard()">ارسال وجه</button>';
+      html += '<div id="c2cMsg" style="font-size:12px;margin-top:8px;text-align:center;min-height:16px"></div>';
+
+      body.innerHTML = html;
+    };
+
+    async function checkIncomingTransfers() {
+      if (!auth.currentUser) return;
+      try {
+        var snap = await db.collection('transfers')
+          .where('toUid', '==', auth.currentUser.uid)
+          .where('status', '==', 'pending')
+          .limit(20).get();
+        if (snap.empty) return;
+        var totalReceived = 0;
+        var fromNames = [];
+        var updates = [];
+        snap.forEach(function (d) {
+          var t = d.data();
+          totalReceived += (t.amount || 0);
+          fromNames.push(t.fromUsername || 'ناشناس');
+          updates.push(d.ref.update({ status: 'completed' }));
+        });
+        if (totalReceived > 0) {
+          S.cash = (S.cash || 0) + totalReceived;
+          try { addTx('in', 'کارت به کارت از ' + fromNames.join('، '), totalReceived); } catch (e) {}
+          _origSave();
+          try { render(); renderBank(); } catch (e) {}
+          try { toast(fmt(totalReceived) + ' کارت‌به‌کارت از ' + fromNames.join('، ') + ' دریافت شد'); } catch (e) {}
+        }
+        await Promise.all(updates);
+      } catch (e) { console.error('checkIncomingTransfers failed', e); }
+    }
+
+    // ---------- سیستم دعوت از دوستان ----------
+    var REFERRAL_REWARD = 50000;
+
+    async function applyReferralIfAny(newUsername) {
+      var codeRaw = '';
+      try {
+        var inp = document.getElementById('regInviteCode');
+        codeRaw = (inp && inp.value ? inp.value : '') || localStorage.getItem('aether_pending_ref') || '';
+      } catch (e) {}
+      codeRaw = String(codeRaw || '').trim();
+      if (!codeRaw) return;
+      if (codeRaw.toLowerCase() === newUsername.toLowerCase()) {
+        try { localStorage.removeItem('aether_pending_ref'); } catch (e) {}
+        return;
+      }
+      try {
+        var refDoc = await db.collection('usernames').doc(codeRaw.toLowerCase()).get();
+        if (!refDoc.exists) { try { localStorage.removeItem('aether_pending_ref'); } catch (e) {} return; }
+        var referrerUid = refDoc.data().uid;
+        var referrerUsername = refDoc.data().username || codeRaw;
+        if (!auth.currentUser || referrerUid === auth.currentUser.uid) return;
+        await db.collection('transfers').add({
+          fromUid: auth.currentUser.uid, fromUsername: 'پاداش دعوت (' + newUsername + ')',
+          toUid: referrerUid, toUsername: referrerUsername,
+          amount: REFERRAL_REWARD, status: 'pending',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        try { localStorage.removeItem('aether_pending_ref'); } catch (e) {}
+      } catch (e) { console.error('referral apply failed', e); }
+    }
+
+    window.showInviteFriends = function () {
+      if (!auth.currentUser) { toast('برای دعوت دوستان باید وارد حساب کاربری شوید'); return; }
+      var title = document.getElementById('mTitle');
+      var body = document.getElementById('mBody');
+      var btns = document.getElementById('mBtns');
+      if (!title) return;
+      var uname = (S.authSession && S.authSession.username) || '';
+      var link = window.location.origin + window.location.pathname + '?ref=' + encodeURIComponent(uname);
+      title.textContent = 'دعوت از دوستان';
+      var html = '';
+      html += '<div class="fin-card full" style="margin-bottom:10px;text-align:center">';
+      html += '<div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:10px">با دعوت هر دوست که از لینک زیر وارد بازی بشه و حساب بسازه، <b style="color:var(--green)">' + fmt(REFERRAL_REWARD) + '</b> جایزه می‌گیری 🎁</div>';
+      html += '<div style="font-weight:700;font-size:13px;direction:ltr;word-break:break-all;background:rgba(255,255,255,0.06);padding:10px;border-radius:10px;margin-bottom:10px">' + link + '</div>';
+      html += '<div style="display:flex;gap:8px">';
+      html += '<button class="btn-up" style="flex:1" onclick="copyInviteLink(\'' + link + '\')">کپی لینک</button>';
+      html += '<button class="btn-sec" style="flex:1" onclick="shareInviteLink(\'' + link + '\')">اشتراک‌گذاری</button>';
+      html += '</div>';
+      html += '<div style="font-size:11px;color:var(--muted);margin-top:10px">کد دعوت شما: <b style="color:#fff;direction:ltr">' + escHtml(uname) + '</b></div>';
+      html += '</div>';
+      body.innerHTML = html;
+      btns.innerHTML = '<button class="btn-sec" style="width:100%;padding:10px" onclick="closeModal()">بستن</button>';
+      document.getElementById('modalBg').classList.add('show');
+    };
+
+    window.copyInviteLink = function (link) {
+      function fallback() {
+        try {
+          var t = document.createElement('textarea');
+          t.value = link; document.body.appendChild(t); t.select();
+          document.execCommand('copy'); document.body.removeChild(t);
+          toast('لینک کپی شد');
+        } catch (e) { toast(link); }
+      }
+      try { navigator.clipboard.writeText(link).then(function () { toast('لینک کپی شد'); }).catch(fallback); } catch (e) { fallback(); }
+    };
+
+    window.shareInviteLink = function (link) {
+      if (navigator.share) {
+        navigator.share({ title: 'غول اقتصادی', text: 'بیا با من غول اقتصادی بازی کن!', url: link }).catch(function () {});
+      } else {
+        window.copyInviteLink(link);
+      }
+    };
+
     function scoreForLeaderboard() {
       try {
         var w = (typeof getNetWorth === 'function') ? getNetWorth() : (S.cash || 0);
@@ -12650,8 +12958,8 @@ function getMiniEntryCost(kind) {
       var user = auth.currentUser;
       if (!user) return;
       try {
-        var payload = buildGamePayloadFromS();
-        db.collection('players').doc(user.uid).set(payload).catch(function (e) {
+        var payload = sanitizeForFirestore(buildGamePayloadFromS());
+        db.collection('players').doc(user.uid).set(payload, { merge: true }).catch(function (e) {
           console.error('cloud save failed', e);
         });
         db.collection('leaderboard').doc(user.uid).set({
@@ -12712,7 +13020,8 @@ function getMiniEntryCost(kind) {
         var curName = gamePayload.name;
         gamePayload.name = (curName && curName !== 'آریا' && curName !== 'بازیکن') ? curName : user;
         gamePayload.authSession = { accountId: uid, username: user, loggedIn: true };
-        await db.collection('players').doc(uid).set(gamePayload);
+        gamePayload = sanitizeForFirestore(gamePayload);
+        await db.collection('players').doc(uid).set(gamePayload, { merge: true });
         await db.collection('leaderboard').doc(uid).set({
           username: user, score: scoreForLeaderboard(), level: gamePayload.level || 1,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -12725,8 +13034,29 @@ function getMiniEntryCost(kind) {
         hideAuthOverlay();
         try { updateProfileAccountBox(); render(); } catch (e) {}
         try { toast('حساب ساخته شد — خوش آمدید ' + user); } catch (e) {}
+        try { await ensureCardNumber(uid, user); } catch (e) {}
+        try {
+          await db.collection('usernames').doc(user.toLowerCase()).set({ uid: uid, username: user });
+        } catch (e) {}
+        try { await applyReferralIfAny(user); } catch (e) {}
       } catch (e) {
         console.error(e);
+        // اگه حساب توی Authentication واقعاً ساخته شده بود (فقط مرحله‌ی بعدش خطا داد)،
+        // به‌جای نمایش خطا، کاربر رو وارد بازی می‌کنیم تا گیر نکنه
+        if (auth.currentUser && auth.currentUser.uid) {
+          try {
+            var uid2 = auth.currentUser.uid;
+            setSession(uid2, user);
+            S.name = S.name || user;
+            S.authSession = { accountId: uid2, username: user, loggedIn: true };
+            _origSave();
+            hideAuthOverlay();
+            try { updateProfileAccountBox(); render(); } catch (e2) {}
+            try { toast('حساب ساخته شد — خوش آمدید ' + user); } catch (e2) {}
+            try { queueCloudSave(); } catch (e2) {}
+            return;
+          } catch (e3) { console.error(e3); }
+        }
         showAuthRegister();
         if (e && e.code === 'auth/email-already-in-use') err.textContent = 'این نام کاربری قبلاً استفاده شده است.';
         else if (e && e.code === 'auth/network-request-failed') err.textContent = 'خطای اتصال اینترنت — دوباره تلاش کنید.';
@@ -12755,6 +13085,7 @@ function getMiniEntryCost(kind) {
         hideAuthOverlay();
         try { updateProfileAccountBox(); render(); } catch (e) {}
         try { toast('خوش آمدید، ' + user); } catch (e) {}
+        try { await ensureCardNumber(uid, user); checkIncomingTransfers(); } catch (e) {}
       } catch (e) {
         console.error(e);
         showAuthLogin();
@@ -12786,8 +13117,12 @@ function getMiniEntryCost(kind) {
         S.authSession = { accountId: user.uid, username: uname, loggedIn: true };
         _origSave();
         try { updateProfileAccountBox(); render(); } catch (e) {}
+        try { ensureCardNumber(user.uid, uname); checkIncomingTransfers(); } catch (e) {}
       }).catch(function (e) { console.error('cloud fetch failed', e); });
     });
+
+    // هر ۳۰ ثانیه یک بار وجوه کارت‌به‌کارتِ در انتظار رو چک کن
+    setInterval(function () { checkIncomingTransfers(); }, 30000);
 
     // ---------- لیدربورد آنلاین (همه بازیکنان) ----------
     showLeaderboard = function () {
