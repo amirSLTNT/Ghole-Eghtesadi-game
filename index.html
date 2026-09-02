@@ -166,6 +166,13 @@
       }
     }
     /* === /AMBIENT_LIGHT_V1 === */
+
+    .biz-tab-btn.active, #bizTabSolo.active, #bizTabPartner.active, #bizTabSolo2.active, #bizTabPartner2.active {
+      border-color: var(--primary) !important;
+      color: var(--primary) !important;
+      box-shadow: 0 0 12px var(--glow);
+    }
+
 /* ========== TOP BAR ========== */
     .topbar {
       display: flex;
@@ -2737,7 +2744,12 @@
             <span class="sec-count" id="bizCount">۰/۶</span>
           </span>
         </div>
+        <div style="display:flex;gap:8px;margin:0 12px 10px;padding:0">
+          <button type="button" class="btn-sec biz-tab-btn active" id="bizTabSolo" style="flex:1;padding:10px;font-size:12px;font-weight:700" onclick="switchBizTab('solo')">کسب‌وکارها</button>
+          <button type="button" class="btn-sec biz-tab-btn" id="bizTabPartner" style="flex:1;padding:10px;font-size:12px;font-weight:700" onclick="switchBizTab('partner')">شراکتی</button>
+        </div>
         <div id="bizList"></div>
+        <div id="partnerBizList" style="display:none"></div>
 
         
       </section>
@@ -2767,7 +2779,12 @@
           <span class="sec-title">مدیریت کسب‌وکارها</span>
           <button type="button" class="btn-sec" style="padding:6px 10px;font-size:11px;font-weight:700" onclick="collectAllFullBiz()">برداشت همه</button>
         </div>
+        <div style="display:flex;gap:8px;margin:0 12px 10px">
+          <button type="button" class="btn-sec" id="bizTabSolo2" style="flex:1;padding:10px;font-size:12px;font-weight:700" onclick="switchBizTab('solo')">کسب‌وکارها</button>
+          <button type="button" class="btn-sec" id="bizTabPartner2" style="flex:1;padding:10px;font-size:12px;font-weight:700" onclick="switchBizTab('partner')">شراکتی</button>
+        </div>
         <div id="bizList2"></div>
+        <div id="partnerBizList2" style="display:none"></div>
       </section>
 
       <!-- INVEST -->
@@ -5353,6 +5370,10 @@ const ASSETS = {
     if (!S.bizPrice || typeof S.bizPrice !== 'object') S.bizPrice = {};
     if (!S.marketShare || typeof S.marketShare !== 'object') S.marketShare = {};
     if (!S.stats || typeof S.stats !== 'object') S.stats = {};
+    if (!S.partnerships || typeof S.partnerships !== 'object') S.partnerships = {};
+    if (!S.partnerInvites || typeof S.partnerInvites !== 'object') S.partnerInvites = {};
+    if (!S.partnerOutbox || typeof S.partnerOutbox !== 'object') S.partnerOutbox = {};
+    if (typeof window._bizTab === 'undefined') window._bizTab = 'solo';
     if (!S.gender) S.gender = 'boy';
     if (!S.txLog) S.txLog = [];
     if (!S.blackMarket) S.blackMarket = {};
@@ -5677,7 +5698,10 @@ const ASSETS = {
           tempBizMods: S.tempBizMods || {},
           bizPrice: S.bizPrice || {},
           marketShare: S.marketShare || {},
-          stats: S.stats || {}
+          stats: S.stats || {},
+          partnerships: S.partnerships || {},
+          partnerInvites: S.partnerInvites || {},
+          partnerOutbox: S.partnerOutbox || {}
       };
     }
 
@@ -6098,7 +6122,10 @@ function openAccountFromProfile() {
           tempBizMods: S.tempBizMods || {},
           bizPrice: S.bizPrice || {},
           marketShare: S.marketShare || {},
-          stats: S.stats || {}
+          stats: S.stats || {},
+          partnerships: S.partnerships || {},
+          partnerInvites: S.partnerInvites || {},
+          partnerOutbox: S.partnerOutbox || {}
         };
         var str = JSON.stringify(payload);
         localStorage.setItem(SAVE_KEY, str);
@@ -13022,8 +13049,15 @@ function getMiniEntryCost(kind) {
         gamePayload.authSession = { accountId: uid, username: user, loggedIn: true };
         gamePayload = sanitizeForFirestore(gamePayload);
         await db.collection('players').doc(uid).set(gamePayload, { merge: true });
+        var _pScore = 0;
+        try {
+          Object.keys((gamePayload.partnerships||S.partnerships||{})).forEach(function(id){
+            var pp = (gamePayload.partnerships||S.partnerships)[id];
+            if (pp && pp.status==='active') _pScore += (pp.investOwner||0)+(pp.investPartner||0);
+          });
+        } catch(ePS) {}
         await db.collection('leaderboard').doc(uid).set({
-          username: user, score: scoreForLeaderboard(), level: gamePayload.level || 1,
+          username: user, score: scoreForLeaderboard(), partnerScore: _pScore, level: gamePayload.level || 1,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         setSession(uid, user);
@@ -13125,21 +13159,26 @@ function getMiniEntryCost(kind) {
     setInterval(function () { checkIncomingTransfers(); }, 30000);
 
     // ---------- لیدربورد آنلاین (همه بازیکنان) ----------
-    showLeaderboard = function () {
+    showLeaderboard = function (tab) {
+      tab = tab || 'wealth';
       var title = document.getElementById('mTitle');
       var body = document.getElementById('mBody');
       var btns = document.getElementById('mBtns');
       if (!title) return;
       title.textContent = 'لیدربورد آنلاین';
-      body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted)">در حال بارگذاری...</div>';
+      var tabs = '<div style="display:flex;gap:8px;margin-bottom:12px">' +
+        '<button class="btn-sec" style="flex:1;padding:10px' + (tab==='wealth' ? ';border-color:var(--primary);color:var(--primary)' : '') + '" onclick="showLeaderboard(\'wealth\')">ثروت</button>' +
+        '<button class="btn-sec" style="flex:1;padding:10px' + (tab==='partner' ? ';border-color:var(--primary);color:var(--primary)' : '') + '" onclick="showLeaderboard(\'partner\')">شراکت</button></div>';
+      body.innerHTML = tabs + '<div style="text-align:center;padding:24px;color:var(--muted)">در حال بارگذاری...</div>';
       btns.innerHTML = '<button class="btn-sec" style="width:100%;padding:10px" onclick="closeModal()">بستن</button>';
       document.getElementById('modalBg').classList.add('show');
 
-      db.collection('leaderboard').orderBy('score', 'desc').limit(50).get().then(function (snap) {
+      function renderRows(snap, scoreKey, emptyMsg) {
         var myUid = auth.currentUser ? auth.currentUser.uid : null;
-        var html = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">رتبه‌بندی بازیکنان بر اساس <b style="color:var(--text)">ثروت کل</b></div>';
-        if (snap.empty) {
-          html += '<div style="text-align:center;padding:20px;color:var(--muted)">هنوز کسی ثبت نشده — اولین نفر باش!</div>';
+        var html = tabs;
+        html += '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">' + (tab==='partner' ? 'رتبه‌بندی بر اساس <b>سرمایه کسب‌وکارهای شراکتی</b>' : 'رتبه‌بندی بر اساس <b>ثروت کل</b>') + '</div>';
+        if (!snap || snap.empty) {
+          html += '<div style="text-align:center;padding:20px;color:var(--muted)">' + emptyMsg + '</div>';
         } else {
           var i = 0;
           snap.forEach(function (d) {
@@ -13148,19 +13187,589 @@ function getMiniEntryCost(kind) {
             var isMe = myUid && d.id === myUid;
             var bg = isMe ? 'rgba(0,229,160,0.15)' : 'rgba(255,255,255,0.04)';
             var border = isMe ? 'border:1px solid rgba(0,229,160,0.35);' : '';
+            var sc = p[scoreKey] != null ? p[scoreKey] : (p.score || 0);
             html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;margin:6px 0;background:' + bg + ';border-radius:12px;' + border + '">';
             html += '<span style="font-weight:' + (isMe ? '700' : '500') + '">' + i + '. ' + escHtml(p.username || 'بازیکن') + '</span>';
-            html += '<span style="color:var(--green);font-weight:700;direction:ltr">' + fmt(p.score || 0) + '</span>';
-            html += '</div>';
+            html += '<span style="color:var(--green);font-weight:700;direction:ltr">' + fmt(sc || 0) + '</span></div>';
           });
         }
         body.innerHTML = html;
-      }).catch(function (e) {
-        console.error(e);
-        body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger,#EF4444)">خطا در بارگذاری لیدربورد — اتصال اینترنت را بررسی کنید.</div>';
-      });
+      }
+
+      if (tab === 'partner') {
+        // local fallback + cloud partnerScore
+        try {
+          var localScore = 0;
+          Object.keys(S.partnerships || {}).forEach(function(id) {
+            var p = S.partnerships[id];
+            if (p && p.status === 'active') localScore += (p.investOwner||0)+(p.investPartner||0);
+          });
+          if (auth.currentUser) {
+            db.collection('leaderboard').doc(auth.currentUser.uid).set({
+              partnerScore: localScore,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).catch(function(){});
+          }
+        } catch(e) {}
+        db.collection('leaderboard').orderBy('partnerScore', 'desc').limit(50).get().then(function(snap) {
+          renderRows(snap, 'partnerScore', 'هنوز شراکت فعالی ثبت نشده');
+        }).catch(function() {
+          // fallback: show local only
+          var html = tabs + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">نمایش محلی (کلود در دسترس نیست)</div>';
+          var rows = [];
+          var sc = 0;
+          Object.keys(S.partnerships || {}).forEach(function(id) {
+            var p = S.partnerships[id];
+            if (p && p.status === 'active') sc += (p.investOwner||0)+(p.investPartner||0);
+          });
+          html += '<div style="padding:10px 12px;margin:6px 0;background:rgba(0,229,160,0.15);border-radius:12px;display:flex;justify-content:space-between"><span>1. ' + escHtml(getMyPartnerName()) + '</span><span style="color:var(--green);font-weight:700">' + fmt(sc) + '</span></div>';
+          body.innerHTML = html;
+        });
+      } else {
+        db.collection('leaderboard').orderBy('score', 'desc').limit(50).get().then(function (snap) {
+          renderRows(snap, 'score', 'هنوز کسی ثبت نشده — اولین نفر باش!');
+        }).catch(function (e) {
+          console.error(e);
+          body.innerHTML = tabs + '<div style="text-align:center;padding:20px;color:var(--danger,#EF4444)">خطا در بارگذاری لیدربورد</div>';
+        });
+      }
     };
     } // end initCloudFeatures
+
+    
+    // ========== PARTNERSHIP BUSINESSES ==========
+    var PARTNER_STAFF = [
+      { id:'ceo', name:'مدیر اجرایی', salary:800, bonus:0.04, desc:'هماهنگی کلی کسب‌وکار' },
+      { id:'accountant', name:'حسابدار', salary:500, bonus:0.02, desc:'مدیریت مالی و گزارش‌ها' },
+      { id:'marketer', name:'کارشناس بازاریابی', salary:600, bonus:0.03, desc:'جذب مشتری و تبلیغات' },
+      { id:'sales', name:'کارشناس فروش', salary:550, bonus:0.025, desc:'افزایش فروش خدمات' },
+      { id:'support', name:'پشتیبان مشتریان', salary:400, bonus:0.015, desc:'رضایت مشتری' },
+      { id:'ops', name:'مسئول عملیات', salary:450, bonus:0.02, desc:'اجرای روزانه کارها' },
+      { id:'secretary', name:'منشی اداری', salary:300, bonus:0.01, desc:'هماهنگی قرارها و اسناد' },
+      { id:'security', name:'نگهبان / حراست', salary:280, bonus:0.008, desc:'امنیت محل کار' }
+    ];
+    var PARTNER_EQUIP = [
+      { id:'office', name:'تجهیزات اداری پایه', cost:2000, bonus:0.03 },
+      { id:'software', name:'نرم‌افزار مدیریت', cost:3500, bonus:0.04 },
+      { id:'ads', name:'بسته تبلیغات ماهانه', cost:5000, bonus:0.05 },
+      { id:'warehouse', name:'فضای انبار/انباره کوچک', cost:8000, bonus:0.06 },
+      { id:'vehicle', name:'خودرو خدماتی', cost:12000, bonus:0.07 }
+    ];
+
+    function switchBizTab(tab) {
+      window._bizTab = tab === 'partner' ? 'partner' : 'solo';
+      var solo = window._bizTab === 'solo';
+      ['bizList','bizList2'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = solo ? '' : 'none';
+      });
+      ['partnerBizList','partnerBizList2'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = solo ? 'none' : '';
+      });
+      function mark(id, on) {
+        var b = document.getElementById(id);
+        if (!b) return;
+        if (on) b.classList.add('active'); else b.classList.remove('active');
+        b.style.borderColor = on ? 'var(--primary)' : '';
+        b.style.color = on ? 'var(--primary)' : '';
+      }
+      mark('bizTabSolo', solo); mark('bizTabSolo2', solo);
+      mark('bizTabPartner', !solo); mark('bizTabPartner2', !solo);
+      try { if (solo) { drawBiz('bizList'); drawBiz('bizList2'); } else { renderPartnerBizLists(); } } catch(e) {}
+    }
+
+    function getMyPartnerUid() {
+      try {
+        if (S.authSession && S.authSession.loggedIn && S.authSession.accountId) return S.authSession.accountId;
+      } catch(e) {}
+      try { if (typeof getCurrentAccountId === 'function') return getCurrentAccountId(); } catch(e2) {}
+      return 'local_' + (S.name || 'guest');
+    }
+    function getMyPartnerName() {
+      return (S.name || (S.authSession && S.authSession.username) || 'بازیکن');
+    }
+    function ensurePartnerState() {
+      if (!S.partnerships) S.partnerships = {};
+      if (!S.partnerInvites) S.partnerInvites = {};
+      if (!S.partnerOutbox) S.partnerOutbox = {};
+    }
+    function minPartnerCreateInvest() {
+      var lvl = S.level || 1;
+      return Math.max(3000, Math.floor(2000 + lvl * 400));
+    }
+    function partnerDailyRate(p) {
+      // سود پایه روزانه متعادل: حدود ۱.۲٪ تا ۲.۵٪ سرمایه کل با مدیریت
+      var base = 0.012;
+      var staffB = 0, eqB = 0;
+      if (p.staff) Object.keys(p.staff).forEach(function(sid) {
+        if (!p.staff[sid]) return;
+        var s = PARTNER_STAFF.find(function(x){ return x.id===sid; });
+        if (s) staffB += s.bonus;
+      });
+      if (p.equip) Object.keys(p.equip).forEach(function(eid) {
+        if (!p.equip[eid]) return;
+        var e = PARTNER_EQUIP.find(function(x){ return x.id===eid; });
+        if (e) eqB += e.bonus;
+      });
+      var rate = base + staffB + eqB;
+      // رویداد موقت
+      if (p.eventMult && p.eventUntil && Date.now() < p.eventUntil) rate *= p.eventMult;
+      return Math.min(0.045, Math.max(0.004, rate));
+    }
+    function myShareOf(p) {
+      var uid = getMyPartnerUid();
+      var total = (p.investOwner || 0) + (p.investPartner || 0);
+      if (total <= 0) return 0.5;
+      if (uid === p.ownerId) return (p.investOwner || 0) / total;
+      if (uid === p.partnerId) return (p.investPartner || 0) / total;
+      return 0;
+    }
+    function tickPartnerships() {
+      ensurePartnerState();
+      var now = Date.now();
+      Object.keys(S.partnerships).forEach(function(id) {
+        var p = S.partnerships[id];
+        if (!p || p.status !== 'active') return;
+        if (!p.lastProfitAt) p.lastProfitAt = now;
+        // هر ~۶۰ ثانیه معادل سهم کوچکی از سود روزانه (برای حس زنده بودن)
+        var elapsed = now - (p.lastProfitAt || now);
+        if (elapsed < 5000) return;
+        var dayFrac = elapsed / 86400000;
+        p.lastProfitAt = now;
+        var capital = (p.investOwner || 0) + (p.investPartner || 0);
+        if (capital < 1) return;
+        // رویداد تصادفی سبک
+        if (!p.nextEventAt) p.nextEventAt = now + (4 + Math.random() * 8) * 3600000;
+        if (now >= p.nextEventAt) {
+          p.nextEventAt = now + (5 + Math.random() * 10) * 3600000;
+          var roll = Math.random();
+          if (roll < 0.35) {
+            p.eventMult = 1.2; p.eventUntil = now + 2 * 3600000; p.eventLabel = 'رونق تقاضا (+۲۰٪)';
+            try { toast('📣 ' + (p.name||'شراکت') + ': رونق تقاضا'); } catch(e) {}
+          } else if (roll < 0.55) {
+            p.eventMult = 0.75; p.eventUntil = now + 2 * 3600000; p.eventLabel = 'رکود موقت (−۲۵٪)';
+            try { toast('⚠️ ' + (p.name||'شراکت') + ': رکود موقت'); } catch(e) {}
+          } else if (roll < 0.65) {
+            var loss = Math.floor(capital * 0.01);
+            p.capacity = Math.max(0, (p.capacity || 0) - loss);
+            p.eventLabel = 'هزینه پیش‌بینی‌نشده';
+            try { toast('💸 ' + (p.name||'شراکت') + ': هزینه پیش‌بینی‌نشده'); } catch(e) {}
+          } else {
+            p.eventMult = 1; p.eventUntil = 0; p.eventLabel = '';
+          }
+        }
+        var rate = partnerDailyRate(p);
+        var gain = capital * rate * dayFrac;
+        // سقف ظرفیت تا از رشد انفجاری جلوگیری شود
+        var maxCap = Math.max(capital * 0.15, 5000);
+        p.capacity = Math.min(maxCap, (p.capacity || 0) + gain);
+      });
+    }
+    function renderPartnerBizLists() {
+      ensurePartnerState();
+      tickPartnerships();
+      ['partnerBizList','partnerBizList2'].forEach(function(cid) {
+        var el = document.getElementById(cid);
+        if (!el) return;
+        var html = '';
+        html += '<div style="padding:0 12px 12px">';
+        html += '<button class="btn-up" style="width:100%;padding:12px;margin-bottom:10px" onclick="showCreatePartnership()">＋ افزودن کسب‌وکار شراکتی</button>';
+        // invites
+        var invIds = Object.keys(S.partnerInvites || {});
+        if (invIds.length) {
+          html += '<div style="font-weight:800;margin:8px 0;color:var(--primary)">📩 درخواست‌های دریافتی</div>';
+          invIds.forEach(function(iid) {
+            var inv = S.partnerInvites[iid];
+            if (!inv || inv.status !== 'pending') return;
+            html += '<div class="fin-card full" style="margin-bottom:8px">';
+            html += '<div style="font-weight:700">' + escHtml(inv.name || 'شراکت') + '</div>';
+            html += '<div style="font-size:12px;color:var(--muted);margin:4px 0">' + escHtml(inv.service || '') + '</div>';
+            html += '<div style="font-size:12px">از: <b>' + escHtml(inv.ownerName || inv.ownerId) + '</b></div>';
+            html += '<div style="font-size:12px">سرمایهٔ مؤسس: <b>' + fmt(inv.investOwner||0) + '</b> · حداقل شما: <b>' + fmt(inv.minPartnerInvest||0) + '</b></div>';
+            html += '<div style="display:flex;gap:8px;margin-top:8px">';
+            html += '<button class="btn-up" style="flex:1;padding:8px" onclick="acceptPartnershipInvite(\'' + iid + '\')">قبول و سرمایه‌گذاری</button>';
+            html += '<button class="btn-sec" style="flex:1;padding:8px" onclick="rejectPartnershipInvite(\'' + iid + '\')">رد</button>';
+            html += '</div></div>';
+          });
+        }
+        var pids = Object.keys(S.partnerships || {}).filter(function(id) {
+          var p = S.partnerships[id];
+          return p && (p.status === 'active' || p.status === 'pending');
+        });
+        if (!pids.length && !invIds.length) {
+          html += '<div style="text-align:center;padding:24px 12px;color:var(--muted);font-size:13px;line-height:1.7">هنوز کسب‌وکار شراکتی ندارید.<br>با یک دوست روی یک ایده سرمایه‌گذاری کنید.</div>';
+        }
+        pids.forEach(function(id) {
+          var p = S.partnerships[id];
+          var capital = (p.investOwner||0)+(p.investPartner||0);
+          var share = myShareOf(p);
+          var myCap = Math.floor((p.capacity||0) * share);
+          html += '<div class="fin-card full" style="margin-bottom:10px">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center"><b>' + escHtml(p.name||'شراکت') + '</b>';
+          html += '<span style="font-size:11px;color:var(--muted)">' + (p.status==='pending'?'در انتظار شریک':'فعال') + '</span></div>';
+          html += '<div style="font-size:12px;color:var(--muted);margin:4px 0">' + escHtml(p.service||'') + '</div>';
+          html += '<div style="font-size:12px">شرکا: ' + escHtml(p.ownerName||'؟') + ' + ' + escHtml(p.partnerName||'—') + '</div>';
+          html += '<div style="font-size:12px;margin-top:4px">سرمایه کل: <b>' + fmt(capital) + '</b> · سهم شما: <b>' + Math.round(share*100) + '٪</b></div>';
+          if (p.eventLabel && p.eventUntil && Date.now() < p.eventUntil) {
+            html += '<div style="font-size:11px;color:var(--warning,#F59E0B);margin-top:4px">رویداد: ' + escHtml(p.eventLabel) + '</div>';
+          }
+          if (p.status === 'active') {
+            html += '<div style="font-size:12px;margin-top:6px">سود قابل برداشت شما: <b style="color:var(--success)">' + fmt(myCap) + '</b></div>';
+            html += '<div style="display:flex;gap:8px;margin-top:8px">';
+            html += '<button class="btn-up" style="flex:1;padding:8px" ' + (myCap<1?'disabled':'') + ' onclick="collectPartnerProfit(\'' + id + '\')">برداشت سهم</button>';
+            html += '<button class="btn-sec" style="flex:1;padding:8px" onclick="showPartnerManage(\'' + id + '\')">مدیریت</button>';
+            html += '</div>';
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+        el.innerHTML = html;
+      });
+    }
+    function showCreatePartnership() {
+      ensurePartnerState();
+      var minInv = minPartnerCreateInvest();
+      var title = document.getElementById('mTitle');
+      var body = document.getElementById('mBody');
+      var btns = document.getElementById('mBtns');
+      title.textContent = 'کسب‌وکار شراکتی جدید';
+      body.innerHTML =
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.6">فقط ۲ نفر می‌توانند شریک شوند. سود روزانه بر اساس سهم سرمایه تقسیم می‌شود. استخدام و ارتقا نیاز به توافق دو طرف دارد.</div>' +
+        '<label style="font-size:12px;display:block;margin-bottom:4px">نام کسب‌وکار</label>' +
+        '<input id="pName" class="inp" style="width:100%;margin-bottom:8px;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0a0f1a;color:var(--text)" placeholder="مثلاً کافه شبانه"/>' +
+        '<label style="font-size:12px;display:block;margin-bottom:4px">خدمت / موضوع فعالیت</label>' +
+        '<input id="pService" class="inp" style="width:100%;margin-bottom:8px;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0a0f1a;color:var(--text)" placeholder="مثلاً فروش قهوه و دسر"/>' +
+        '<label style="font-size:12px;display:block;margin-bottom:4px">سرمایه شما (حداقل ' + fmt(minInv) + ')</label>' +
+        '<input id="pInvest" type="number" class="inp" style="width:100%;margin-bottom:8px;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0a0f1a;color:var(--text)" value="' + minInv + '"/>' +
+        '<label style="font-size:12px;display:block;margin-bottom:4px">حداقل سرمایه شریک</label>' +
+        '<input id="pMinPartner" type="number" class="inp" style="width:100%;margin-bottom:8px;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0a0f1a;color:var(--text)" value="' + minInv + '"/>' +
+        '<label style="font-size:12px;display:block;margin-bottom:4px">شناسه / نام‌کاربری شریک</label>' +
+        '<input id="pFriend" class="inp" style="width:100%;margin-bottom:8px;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0a0f1a;color:var(--text)" placeholder="آیدی حساب دوست"/>' +
+        '<div id="pErr" style="color:var(--danger);font-size:12px;min-height:18px"></div>';
+      btns.innerHTML = '<button class="btn-up" style="flex:1;padding:12px" onclick="submitPartnershipCreate()">ارسال درخواست</button>' +
+        '<button class="btn-sec" style="flex:1;padding:12px" onclick="closeModal()">بستن</button>';
+      document.getElementById('modalBg').classList.add('show');
+    }
+    function submitPartnershipCreate() {
+      ensurePartnerState();
+      var name = (document.getElementById('pName').value || '').trim();
+      var service = (document.getElementById('pService').value || '').trim();
+      var invest = Math.floor(Number(document.getElementById('pInvest').value) || 0);
+      var minP = Math.floor(Number(document.getElementById('pMinPartner').value) || 0);
+      var friend = (document.getElementById('pFriend').value || '').trim();
+      var err = document.getElementById('pErr');
+      var minInv = minPartnerCreateInvest();
+      if (!name || name.length < 2) { err.textContent = 'نام کسب‌وکار را وارد کنید'; return; }
+      if (!service) { err.textContent = 'موضوع فعالیت را بنویسید'; return; }
+      if (invest < minInv) { err.textContent = 'حداقل سرمایه شما ' + fmt(minInv) + ' است'; return; }
+      if (minP < Math.floor(minInv * 0.5)) { err.textContent = 'حداقل سرمایه شریک خیلی کم است'; return; }
+      if (!friend) { err.textContent = 'آیدی شریک را وارد کنید'; return; }
+      if ((S.cash || 0) < invest) { err.textContent = 'پول نقد کافی نیست'; return; }
+      // جلوگیری از تعداد زیاد شراکت همزمان
+      var activeCount = Object.keys(S.partnerships).filter(function(id){ var x=S.partnerships[id]; return x && (x.status==='active'||x.status==='pending'); }).length;
+      if (activeCount >= 5) { err.textContent = 'حداکثر ۵ کسب‌وکار شراکتی همزمان'; return; }
+
+      S.cash -= invest;
+      try { addTx('out', 'سرمایه شراکت: ' + name, -invest); } catch(e) {}
+      var id = 'p_' + Date.now().toString(36) + Math.floor(Math.random()*1000).toString(36);
+      var inviteId = 'inv_' + id;
+      var ownerId = getMyPartnerUid();
+      var ownerName = getMyPartnerName();
+      var pending = {
+        id: id,
+        name: name,
+        service: service,
+        ownerId: ownerId,
+        ownerName: ownerName,
+        partnerId: friend,
+        partnerName: friend,
+        investOwner: invest,
+        investPartner: 0,
+        minPartnerInvest: minP,
+        status: 'pending',
+        capacity: 0,
+        staff: {},
+        equip: {},
+        proposals: [],
+        createdAt: Date.now(),
+        lastProfitAt: Date.now()
+      };
+      S.partnerships[id] = pending;
+      S.partnerOutbox[inviteId] = {
+        id: inviteId,
+        partnershipId: id,
+        name: name,
+        service: service,
+        ownerId: ownerId,
+        ownerName: ownerName,
+        ownerInvest: invest,
+        minPartnerInvest: minP,
+        target: friend,
+        status: 'pending',
+        createdAt: Date.now()
+      };
+      // ذخیره دعوت برای هدف به‌صورت کد محلی (و در صورت وجود کلود)
+      try {
+        var bagKey = 'AETHER_PARTNER_INBOX_' + friend.toLowerCase();
+        var bag = [];
+        try { bag = JSON.parse(localStorage.getItem(bagKey) || '[]'); } catch(e) { bag = []; }
+        bag.push({
+          id: inviteId,
+          partnershipId: id,
+          name: name,
+          service: service,
+          ownerId: ownerId,
+          ownerName: ownerName,
+          investOwner: invest,
+          minPartnerInvest: minP,
+          status: 'pending',
+          createdAt: Date.now()
+        });
+        localStorage.setItem(bagKey, JSON.stringify(bag.slice(-20)));
+      } catch(e2) {}
+      try { if (typeof pushPartnerInviteCloud === 'function') pushPartnerInviteCloud(friend, S.partnerOutbox[inviteId]); } catch(e3) {}
+      try { save(); } catch(e) {}
+      try { animateCash(S.cash); } catch(e) {}
+      closeModal();
+      toast('درخواست شراکت برای «' + friend + '» ارسال شد');
+      renderPartnerBizLists();
+    }
+    function pullPartnerInvites() {
+      ensurePartnerState();
+      var meKeys = [getMyPartnerUid(), (S.authSession && S.authSession.username) || '', S.name || ''];
+      meKeys.forEach(function(key) {
+        if (!key) return;
+        try {
+          var bagKey = 'AETHER_PARTNER_INBOX_' + String(key).toLowerCase();
+          var bag = JSON.parse(localStorage.getItem(bagKey) || '[]');
+          if (!Array.isArray(bag)) return;
+          bag.forEach(function(inv) {
+            if (!inv || !inv.id) return;
+            if (S.partnerInvites[inv.id]) return;
+            if (inv.status && inv.status !== 'pending') return;
+            // نساز اگر خودم owner هستم
+            if (inv.ownerId === getMyPartnerUid()) return;
+            S.partnerInvites[inv.id] = inv;
+          });
+        } catch(e) {}
+      });
+    }
+    function acceptPartnershipInvite(inviteId) {
+      ensurePartnerState();
+      var inv = S.partnerInvites[inviteId];
+      if (!inv || inv.status !== 'pending') { toast('درخواست معتبر نیست'); return; }
+      var need = Math.floor(inv.minPartnerInvest || 0);
+      if ((S.cash || 0) < need) { toast('حداقل سرمایه لازم: ' + fmt(need)); return; }
+      var title = document.getElementById('mTitle');
+      var body = document.getElementById('mBody');
+      var btns = document.getElementById('mBtns');
+      title.textContent = 'تأیید سرمایه‌گذاری';
+      body.innerHTML = '<div style="font-size:13px;line-height:1.7">برای پیوستن به <b>' + escHtml(inv.name) + '</b> حداقل <b style="color:var(--primary)">' + fmt(need) + '</b> لازم است.</div>' +
+        '<label style="font-size:12px;display:block;margin:10px 0 4px">مبلغ سرمایه‌گذاری شما</label>' +
+        '<input id="pAcceptInv" type="number" value="' + need + '" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0a0f1a;color:var(--text)"/>';
+      btns.innerHTML = '<button class="btn-up" style="flex:1;padding:12px" onclick="confirmAcceptPartnership(\'' + inviteId + '\')">تأیید</button><button class="btn-sec" style="flex:1;padding:12px" onclick="closeModal()">لغو</button>';
+      document.getElementById('modalBg').classList.add('show');
+    }
+    function confirmAcceptPartnership(inviteId) {
+      ensurePartnerState();
+      var inv = S.partnerInvites[inviteId];
+      if (!inv) return;
+      var amount = Math.floor(Number(document.getElementById('pAcceptInv').value) || 0);
+      var need = Math.floor(inv.minPartnerInvest || 0);
+      if (amount < need) { toast('کمتر از حداقل است'); return; }
+      if ((S.cash || 0) < amount) { toast('پول کافی نیست'); return; }
+      S.cash -= amount;
+      try { addTx('out', 'پیوستن به شراکت: ' + inv.name, -amount); } catch(e) {}
+      var pid = inv.partnershipId || ('p_' + inviteId);
+      var p = {
+        id: pid,
+        name: inv.name,
+        service: inv.service,
+        ownerId: inv.ownerId,
+        ownerName: inv.ownerName,
+        partnerId: getMyPartnerUid(),
+        partnerName: getMyPartnerName(),
+        investOwner: inv.investOwner || 0,
+        investPartner: amount,
+        minPartnerInvest: need,
+        status: 'active',
+        capacity: 0,
+        staff: {},
+        equip: {},
+        proposals: [],
+        createdAt: inv.createdAt || Date.now(),
+        lastProfitAt: Date.now()
+      };
+      S.partnerships[pid] = p;
+      inv.status = 'accepted';
+      delete S.partnerInvites[inviteId];
+      // بروزرسانی صندوق دعوت
+      try {
+        var bagKey = 'AETHER_PARTNER_INBOX_' + String(getMyPartnerUid()).toLowerCase();
+        var bag = JSON.parse(localStorage.getItem(bagKey) || '[]').filter(function(x){ return x && x.id !== inviteId; });
+        localStorage.setItem(bagKey, JSON.stringify(bag));
+      } catch(e) {}
+      try { if (typeof notifyPartnerAcceptedCloud === 'function') notifyPartnerAcceptedCloud(p); } catch(e2) {}
+      try { save(); animateCash(S.cash); } catch(e) {}
+      closeModal();
+      toast('شراکت فعال شد: ' + p.name);
+      renderPartnerBizLists();
+    }
+    function rejectPartnershipInvite(inviteId) {
+      ensurePartnerState();
+      if (S.partnerInvites[inviteId]) delete S.partnerInvites[inviteId];
+      try { save(); } catch(e) {}
+      toast('درخواست رد شد');
+      renderPartnerBizLists();
+    }
+    function collectPartnerProfit(pid) {
+      ensurePartnerState();
+      var p = S.partnerships[pid];
+      if (!p || p.status !== 'active') return;
+      var share = myShareOf(p);
+      var amt = Math.floor((p.capacity || 0) * share);
+      if (amt < 1) { toast('سودی برای برداشت نیست'); return; }
+      // برداشت سهم فقط از capacity مربوط به سهم بازیکن
+      p.capacity = Math.max(0, (p.capacity || 0) - amt);
+      S.cash += amt;
+      try { addTx('in', 'سود شراکت: ' + (p.name||''), amt); } catch(e) {}
+      try { animateCash(S.cash); playSfx('money'); save(); } catch(e) {}
+      toast('برداشت سود: ' + fmt(amt));
+      renderPartnerBizLists();
+    }
+    function showPartnerManage(pid) {
+      ensurePartnerState();
+      tickPartnerships();
+      var p = S.partnerships[pid];
+      if (!p) return;
+      var title = document.getElementById('mTitle');
+      var body = document.getElementById('mBody');
+      var btns = document.getElementById('mBtns');
+      title.textContent = 'مدیریت — ' + (p.name || 'شراکت');
+      var html = '';
+      html += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.6">هر استخدام یا خرید تجهیز به‌صورت پیشنهاد ثبت می‌شود و تا تأیید شریک اعمال نمی‌شود. حقوق کارکنان از سود قابل‌برداشت کسر می‌شود.</div>';
+      html += '<div class="fin-card full" style="margin-bottom:8px"><b>سرمایه</b><div style="font-size:12px;margin-top:4px">' + escHtml(p.ownerName) + ': ' + fmt(p.investOwner||0) + ' · ' + escHtml(p.partnerName||'شریک') + ': ' + fmt(p.investPartner||0) + '</div></div>';
+      // proposals
+      var props = (p.proposals || []).filter(function(x){ return x && x.status === 'pending'; });
+      if (props.length) {
+        html += '<div style="font-weight:700;margin:8px 0">⏳ در انتظار توافق</div>';
+        props.forEach(function(pr) {
+          html += '<div class="fin-card full" style="margin-bottom:6px"><div style="font-size:13px">' + escHtml(pr.label||pr.type) + '</div>';
+          html += '<div style="font-size:11px;color:var(--muted)">پیشنهاددهنده: ' + escHtml(pr.byName||'') + '</div>';
+          if (pr.byId !== getMyPartnerUid()) {
+            html += '<div style="display:flex;gap:6px;margin-top:6px"><button class="btn-up" style="flex:1;padding:8px" onclick="votePartnerProposal(\''+pid+'\',\''+pr.id+'\',true)">تأیید</button>';
+            html += '<button class="btn-sec" style="flex:1;padding:8px" onclick="votePartnerProposal(\''+pid+'\',\''+pr.id+'\',false)">رد</button></div>';
+          } else {
+            html += '<div style="font-size:11px;color:var(--muted);margin-top:4px">منتظر تأیید شریک...</div>';
+          }
+          html += '</div>';
+        });
+      }
+      html += '<div style="font-weight:700;margin:10px 0 6px">استخدام (عمومی)</div>';
+      PARTNER_STAFF.forEach(function(s) {
+        var hired = p.staff && p.staff[s.id];
+        html += '<div class="fin-card full" style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">';
+        html += '<div><b style="font-size:13px">' + s.name + '</b><div style="font-size:11px;color:var(--muted)">' + s.desc + ' · حقوق ' + fmt(s.salary) + '/روز</div></div>';
+        if (hired) html += '<span style="color:var(--success);font-size:12px">فعال</span>';
+        else html += '<button class="btn-sec" style="padding:8px 10px;font-size:11px" onclick="proposePartnerHire(\''+pid+'\',\''+s.id+'\')">پیشنهاد</button>';
+        html += '</div>';
+      });
+      html += '<div style="font-weight:700;margin:10px 0 6px">تجهیزات</div>';
+      PARTNER_EQUIP.forEach(function(e) {
+        var owned = p.equip && p.equip[e.id];
+        html += '<div class="fin-card full" style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">';
+        html += '<div><b style="font-size:13px">' + e.name + '</b><div style="font-size:11px;color:var(--muted)">هزینه ' + fmt(e.cost) + ' · بونوس سود</div></div>';
+        if (owned) html += '<span style="color:var(--success);font-size:12px">خریداری‌شده</span>';
+        else html += '<button class="btn-sec" style="padding:8px 10px;font-size:11px" onclick="proposePartnerEquip(\''+pid+'\',\''+e.id+'\')">پیشنهاد خرید</button>';
+        html += '</div>';
+      });
+      body.innerHTML = html;
+      btns.innerHTML = '<button class="btn-sec" style="width:100%;padding:12px" onclick="closeModal();renderPartnerBizLists()">بستن</button>';
+      document.getElementById('modalBg').classList.add('show');
+    }
+    function proposePartnerHire(pid, staffId) {
+      var p = S.partnerships[pid]; if (!p) return;
+      var s = PARTNER_STAFF.find(function(x){ return x.id===staffId; });
+      if (!s || (p.staff && p.staff[staffId])) return;
+      if (!p.proposals) p.proposals = [];
+      var prId = 'pr_' + Date.now().toString(36);
+      p.proposals.push({ id: prId, type: 'hire', staffId: staffId, label: 'استخدام ' + s.name, cost: 0, byId: getMyPartnerUid(), byName: getMyPartnerName(), status: 'pending', approvals: [getMyPartnerUid()] });
+      try { save(); } catch(e) {}
+      toast('پیشنهاد استخدام ثبت شد — منتظر تأیید شریک');
+      showPartnerManage(pid);
+    }
+    function proposePartnerEquip(pid, eqId) {
+      var p = S.partnerships[pid]; if (!p) return;
+      var e = PARTNER_EQUIP.find(function(x){ return x.id===eqId; });
+      if (!e || (p.equip && p.equip[eqId])) return;
+      if (!p.proposals) p.proposals = [];
+      var prId = 'pr_' + Date.now().toString(36);
+      p.proposals.push({ id: prId, type: 'equip', eqId: eqId, label: 'خرید ' + e.name + ' (' + fmt(e.cost) + ')', cost: e.cost, byId: getMyPartnerUid(), byName: getMyPartnerName(), status: 'pending', approvals: [getMyPartnerUid()] });
+      try { save(); } catch(e2) {}
+      toast('پیشنهاد خرید ثبت شد — منتظر تأیید شریک');
+      showPartnerManage(pid);
+    }
+    function votePartnerProposal(pid, prId, yes) {
+      var p = S.partnerships[pid]; if (!p || !p.proposals) return;
+      var pr = p.proposals.find(function(x){ return x.id===prId; });
+      if (!pr || pr.status !== 'pending') return;
+      if (!yes) {
+        pr.status = 'rejected';
+        try { save(); toast('پیشنهاد رد شد'); showPartnerManage(pid); } catch(e) {}
+        return;
+      }
+      if (!pr.approvals) pr.approvals = [];
+      var me = getMyPartnerUid();
+      if (pr.approvals.indexOf(me) < 0) pr.approvals.push(me);
+      // هر دو شریک باید تأیید کنند
+      var need = [p.ownerId, p.partnerId];
+      var ok = need.every(function(uid){ return pr.approvals.indexOf(uid) >= 0; });
+      // اگر شریک دوم هنوز لوکال نیست، تأیید یک‌نفره کافی نباشد مگر هر دو uid در approvals
+      if (pr.approvals.length >= 2) ok = true;
+      if (!ok) {
+        try { save(); toast('تأیید شما ثبت شد'); showPartnerManage(pid); } catch(e) {}
+        return;
+      }
+      // اجرا
+      if (pr.type === 'hire' && pr.staffId) {
+        if (!p.staff) p.staff = {};
+        p.staff[pr.staffId] = { since: Date.now() };
+      }
+      if (pr.type === 'equip' && pr.eqId) {
+        var e = PARTNER_EQUIP.find(function(x){ return x.id===pr.eqId; });
+        var cost = (e && e.cost) || pr.cost || 0;
+        // هزینه از سود انباشته (capacity) وگرنه از پیشنهاددهنده
+        if ((p.capacity || 0) >= cost) {
+          p.capacity -= cost;
+        } else if ((S.cash || 0) >= cost) {
+          S.cash -= cost;
+          try { addTx('out', 'تجهیزات شراکت', -cost); } catch(e3) {}
+        } else {
+          toast('موجودی/سود کافی برای خرید تجهیز نیست');
+          return;
+        }
+        if (!p.equip) p.equip = {};
+        p.equip[pr.eqId] = true;
+      }
+      pr.status = 'approved';
+      try { save(); animateCash(S.cash); toast('توافق شد و اعمال گردید'); showPartnerManage(pid); } catch(e) {}
+    }
+
+    // tick partnerships with main loop
+    (function hookPartnerTick() {
+      try {
+        setInterval(function() {
+          if (document.hidden) return;
+          try { tickPartnerships(); } catch(e) {}
+          try { pullPartnerInvites(); } catch(e2) {}
+          if (window._bizTab === 'partner') {
+            try { renderPartnerBizLists(); } catch(e3) {}
+          }
+        }, 10000);
+      } catch(e) {}
+    })();
+
 
     loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js')
       .then(function () { return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'); })
