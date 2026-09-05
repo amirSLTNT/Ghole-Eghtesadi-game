@@ -12688,12 +12688,47 @@ function getMiniEntryCost(kind) {
     </div>
   </div>
 
-  <!-- ===== ONLINE ACCOUNTS + CLOUD SAVE + LEADERBOARD (Firebase) ===== -->
+  <!-- ===== ONLINE ACCOUNTS + CLOUD SAVE + LEADERBOARD (PHP/MySQL backend) ===== -->
   <script>
   (function () {
     'use strict';
 
-    // stub تا وقتی Firebase لود میشه، کلیک زودهنگام روی دکمه کارت‌به‌کارت خطا نده
+    var API_BASE = 'https://gholbaz.ir/api.php';
+    var TOKEN_KEY = 'aether_token';
+    var REFERRAL_REWARD = 50000;
+    var CLOUD_SAVE_MIN_INTERVAL = 20000;
+
+    function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
+    function setToken(t) { try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+
+    function api(action, body, method) {
+      method = method || (body ? 'POST' : 'GET');
+      var qs = '?action=' + encodeURIComponent(action);
+      if (method === 'GET' && body) {
+        qs += '&' + Object.keys(body).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(body[k]); }).join('&');
+      }
+      var headers = { 'Content-Type': 'application/json' };
+      var token = getToken();
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      return fetch(API_BASE + qs, {
+        method: method,
+        headers: headers,
+        body: (method !== 'GET' && body) ? JSON.stringify(body) : undefined
+      }).then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) { var err = new Error(data.error || 'request_failed'); err.code = data.error; throw err; }
+          return data;
+        });
+      });
+    }
+
+    function sanitizeData(obj) { try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return obj; } }
+    function scoreForLeaderboard() {
+      try { var w = (typeof getNetWorth === 'function') ? getNetWorth() : (S.cash || 0); return Math.max(0, Math.floor(w || 0)); }
+      catch (e) { return Math.max(0, Math.floor(S.cash || 0)); }
+    }
+
+    // stub تا اتصال اول برقرار بشه
     window.showCardToCard = function () { toast('در حال اتصال به سرور... چند لحظه صبر کنید'); };
     window.showInviteFriends = function () { toast('در حال اتصال به سرور... چند لحظه صبر کنید'); };
 
@@ -12714,85 +12749,190 @@ function getMiniEntryCost(kind) {
       } catch (e) {}
     })();
 
-    // >>> پیکربندی فایربیس خودتان را اینجا جایگزین کنید <<<
-    // از Firebase Console → Project settings → SDK setup and configuration بگیرید
-    var firebaseConfig = {
-      apiKey: "AIzaSyAjKIEYTOq_BJfd_3KTREX20olgWMzAQPY",
-      authDomain: "ghole-eghtesadi.firebaseapp.com",
-      projectId: "ghole-eghtesadi",
-      storageBucket: "ghole-eghtesadi.firebasestorage.app",
-      messagingSenderId: "219244341594",
-      appId: "1:219244341594:web:10f2b1591144dafff26b63"
+    var _cloudSaveTimer = null;
+    var _lastCloudSaveAt = 0;
+
+    function pushCloudSaveNow() {
+      if (!getToken()) return;
+      try {
+        var data = sanitizeData(buildGamePayloadFromS());
+        api('save', { data: data, score: scoreForLeaderboard(), level: S.level || 1 }).catch(function (e) { console.error('save failed', e); });
+        _lastCloudSaveAt = Date.now();
+      } catch (e) { console.error(e); }
+    }
+    function queueCloudSave() {
+      if (!getToken()) return;
+      var elapsed = Date.now() - _lastCloudSaveAt;
+      if (elapsed >= CLOUD_SAVE_MIN_INTERVAL) pushCloudSaveNow();
+      else if (!_cloudSaveTimer) {
+        _cloudSaveTimer = setTimeout(function () { _cloudSaveTimer = null; pushCloudSaveNow(); }, CLOUD_SAVE_MIN_INTERVAL - elapsed);
+      }
+    }
+    var _origSave = save;
+    save = function () { _origSave(); try { queueCloudSave(); } catch (e) {} };
+
+    window.addEventListener('beforeunload', function () { if (getToken()) pushCloudSaveNow(); });
+    document.addEventListener('visibilitychange', function () { if (document.hidden && getToken()) pushCloudSaveNow(); });
+
+    // ---------- ثبت‌نام ----------
+    registerAccountUI = async function () {
+      var user = (document.getElementById('regUser').value || '').trim();
+      var pass = document.getElementById('regPass').value || '';
+      var pass2 = document.getElementById('regPass2').value || '';
+      var inviteInput = document.getElementById('regInviteCode');
+      var inviteCode = ((inviteInput && inviteInput.value) ? inviteInput.value : (localStorage.getItem('aether_pending_ref') || '')).trim();
+      var err = document.getElementById('regErr');
+      err.textContent = '';
+      if (!user) { err.textContent = 'نام کاربری را وارد کنید.'; return; }
+      if (!/^[a-zA-Z0-9_]{3,20}$/.test(user)) { err.textContent = 'نام کاربری باید ۳ تا ۲۰ کاراکتر انگلیسی/عدد باشد.'; return; }
+      if (pass.length < 8) { err.textContent = 'رمز عبور باید حداقل ۸ کاراکتر باشد.'; return; }
+      if (pass !== pass2) { err.textContent = 'رمزهای عبور یکسان نیستند.'; return; }
+      try {
+        showAuthLoading('در حال ساخت حساب...');
+        var gamePayload = sanitizeData(buildGamePayloadFromS());
+        var curName = gamePayload.name;
+        gamePayload.name = (curName && curName !== 'آریا' && curName !== 'بازیکن') ? curName : user;
+        var resp = await api('register', { username: user, password: pass, data: gamePayload, score: scoreForLeaderboard(), level: gamePayload.level || 1, inviteCode: inviteCode });
+        setToken(resp.token);
+        S.cardNumber = resp.cardNumber;
+        applyPayloadToS(gamePayload);
+        S.name = gamePayload.name;
+        S.authSession = { accountId: String(resp.id), username: user, loggedIn: true };
+        setSession(resp.id, user);
+        _origSave();
+        hideAuthOverlay();
+        try { updateProfileAccountBox(); render(); } catch (e) {}
+        try { toast('حساب ساخته شد — خوش آمدید ' + user); } catch (e) {}
+        try { localStorage.removeItem('aether_pending_ref'); } catch (e) {}
+      } catch (e) {
+        console.error(e);
+        showAuthRegister();
+        if (e.code === 'username_taken') err.textContent = 'این نام کاربری قبلاً استفاده شده است.';
+        else if (e.message === 'Failed to fetch') err.textContent = 'خطای اتصال اینترنت — دوباره تلاش کنید.';
+        else err.textContent = 'خطایی هنگام ساخت حساب رخ داد.';
+      }
     };
 
-    if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
-      console.warn("Firebase پیکربندی نشده — حساب آنلاین و لیدربورد غیرفعال است. AETHER_CLOUD_DISABLED را ببینید.");
-      window.AETHER_CLOUD_DISABLED = true;
-      return; // بدون پیکربندی، هیچ درخواست شبکه‌ای زده نمی‌شود و بازی کاملاً محلی کار می‌کند
-    }
+    // ---------- ورود ----------
+    loginAccountUI = async function () {
+      var user = (document.getElementById('loginUser').value || '').trim();
+      var pass = document.getElementById('loginPass').value || '';
+      var err = document.getElementById('loginErr');
+      err.textContent = '';
+      if (!user || !pass) { err.textContent = 'نام کاربری یا رمز عبور اشتباه است.'; return; }
+      try {
+        showAuthLoading('در حال ورود...');
+        var resp = await api('login', { username: user, password: pass });
+        setToken(resp.token);
+        S.cardNumber = resp.cardNumber;
+        applyPayloadToS(resp.data || {});
+        if (!S.name) S.name = user;
+        S.authSession = { accountId: String(resp.id), username: user, loggedIn: true };
+        setSession(resp.id, user);
+        _origSave();
+        hideAuthOverlay();
+        try { updateProfileAccountBox(); render(); } catch (e) {}
+        try { toast('خوش آمدید، ' + user); } catch (e) {}
+        checkIncomingTransfers();
+      } catch (e) {
+        console.error(e);
+        showAuthLogin();
+        err.textContent = 'نام کاربری یا رمز عبور اشتباه است.';
+      }
+    };
 
-    // اسکریپت‌های Firebase را فقط همین‌جا و به‌صورت async بارگذاری می‌کنیم —
-    // نه در <head> — تا هرگز رندر بازی را بلاک نکنند (حتی اگر gstatic.com کند/فیلتر باشد)
-    function loadScript(src) {
-      return new Promise(function (resolve, reject) {
-        var s = document.createElement('script');
-        s.src = src;
-        s.async = true;
-        s.onload = resolve;
-        s.onerror = function () { reject(new Error('load failed: ' + src)); };
-        document.head.appendChild(s);
+    // ---------- خروج ----------
+    logoutAccount = function () {
+      try { if (getToken()) pushCloudSaveNow(); } catch (e) {}
+      setToken('');
+      try { S.authSession = { loggedIn: false, accountId: '', username: '' }; } catch (e) {}
+      clearSession();
+      try { _origSave(); } catch (e) {}
+      hideAuthOverlay();
+      try { updateProfileAccountBox(); render(); } catch (e) {}
+      try { toast('از حساب خارج شدید — می‌توانید مهمان ادامه دهید'); } catch (e) {}
+    };
+
+    // بازیابی نشست ذخیره‌شده هنگام لود صفحه
+    (function restoreSession() {
+      if (!getToken()) return;
+      api('me').then(function (resp) {
+        S.cardNumber = resp.cardNumber;
+        applyPayloadToS(resp.data || {});
+        if (!S.name) S.name = resp.username;
+        S.authSession = { accountId: String(resp.id), username: resp.username, loggedIn: true };
+        setSession(resp.id, resp.username);
+        _origSave();
+        try { updateProfileAccountBox(); render(); } catch (e) {}
+        checkIncomingTransfers();
+      }).catch(function (e) {
+        console.warn('session restore failed', e);
+        setToken('');
       });
+    })();
+
+    setInterval(function () { checkIncomingTransfers(); }, 30000);
+
+    async function checkIncomingTransfers() {
+      if (!getToken()) return;
+      try {
+        var resp = await api('claim_transfers', {});
+        if (resp.total > 0) {
+          S.cash = (S.cash || 0) + resp.total;
+          try { addTx('in', 'کارت‌به‌کارت از ' + resp.fromNames.join('، '), resp.total); } catch (e) {}
+          _origSave();
+          try { render(); if (typeof renderBank === 'function') renderBank(); } catch (e) {}
+          try { toast(fmt(resp.total) + ' کارت‌به‌کارت از ' + resp.fromNames.join('، ') + ' دریافت شد'); } catch (e) {}
+        }
+      } catch (e) { console.error('claim_transfers failed', e); }
     }
 
-    function initCloudFeatures() {
-      firebase.initializeApp(firebaseConfig);
-      var auth = firebase.auth();
-      var db = firebase.firestore();
-      var EMAIL_DOMAIN = '@players.aetherise.game'; // دامنه ساختگی — چون Firebase Auth ایمیل می‌خواهد نه یوزرنیم
-      var CLOUD_SAVE_MIN_INTERVAL = 45000; // حداکثر هر ۴۵ ثانیه یک بار روی سرور ذخیره کن (برای صرفه‌جویی در سهمیه رایگان)
+    // ---------- لیدربورد ----------
+    showLeaderboard = function (tab) {
+      tab = tab || 'wealth';
+      var title = document.getElementById('mTitle');
+      var body = document.getElementById('mBody');
+      var btns = document.getElementById('mBtns');
+      if (!title) return;
+      title.textContent = 'لیدربورد آنلاین';
+      var tabs = '<div style="display:flex;gap:8px;margin-bottom:12px">' +
+        '<button class="btn-sec" style="flex:1;padding:10px' + (tab === 'wealth' ? ';border-color:var(--primary);color:var(--primary)' : '') + '" onclick="showLeaderboard(\'wealth\')">ثروت</button>' +
+        '<button class="btn-sec" style="flex:1;padding:10px' + (tab === 'partner' ? ';border-color:var(--primary);color:var(--primary)' : '') + '" onclick="showLeaderboard(\'partner\')">شراکت</button></div>';
+      btns.innerHTML = '<button class="btn-sec" style="width:100%;padding:10px" onclick="closeModal()">بستن</button>';
+      document.getElementById('modalBg').classList.add('show');
 
-    function usernameToEmail(u) {
-      return String(u).trim().toLowerCase() + EMAIL_DOMAIN;
-    }
+      if (tab === 'partner') {
+        body.innerHTML = tabs + '<div style="text-align:center;padding:24px;color:var(--muted);font-size:13px;line-height:1.7">لیدربورد شراکتی به‌زودی فعال می‌شود 🚧</div>';
+        return;
+      }
 
-    // Firestore مقدار undefined رو قبول نمی‌کنه — قبل از ارسال هر آبجکت رو از این تابع رد می‌کنیم
-    // تا فیلدهای undefined حذف بشن و خطای «invalid data» رخ نده
-    function sanitizeForFirestore(obj) {
-      try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return obj; }
-    }
+      body.innerHTML = tabs + '<div style="text-align:center;padding:24px;color:var(--muted)">در حال بارگذاری...</div>';
+      var myUsername = (S.authSession && S.authSession.username) || '';
+      api('leaderboard').then(function (resp) {
+        var rows = resp.list || [];
+        var html = tabs + '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">رتبه‌بندی بازیکنان بر اساس <b style="color:var(--text)">ثروت کل</b></div>';
+        if (!rows.length) html += '<div style="text-align:center;padding:20px;color:var(--muted)">هنوز کسی ثبت نشده — اولین نفر باش!</div>';
+        rows.forEach(function (p, i) {
+          var isMe = myUsername && p.username === myUsername;
+          var bg = isMe ? 'rgba(0,229,160,0.15)' : 'rgba(255,255,255,0.04)';
+          var border = isMe ? 'border:1px solid rgba(0,229,160,0.35);' : '';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;margin:6px 0;background:' + bg + ';border-radius:12px;' + border + '">';
+          html += '<span style="font-weight:' + (isMe ? '700' : '500') + '">' + (i + 1) + '. ' + escHtml(p.username || 'بازیکن') + '</span>';
+          html += '<span style="color:var(--green);font-weight:700;direction:ltr">' + fmt(p.score || 0) + '</span>';
+          html += '</div>';
+        });
+        body.innerHTML = html;
+      }).catch(function (e) {
+        console.error(e);
+        body.innerHTML = tabs + '<div style="text-align:center;padding:20px;color:var(--danger,#EF4444)">خطا در بارگذاری لیدربورد — اتصال اینترنت را بررسی کنید.</div>';
+      });
+    };
 
     // ---------- کارت به کارت ----------
-    function randomCardNumber() {
-      var s = '6219';
-      for (var i = 0; i < 12; i++) s += Math.floor(Math.random() * 10);
-      return s;
-    }
-    function formatCard(num) {
-      return String(num || '').replace(/(.{4})/g, '$1-').replace(/-$/, '');
-    }
-    async function ensureCardNumber(uid, username) {
-      if (S.cardNumber) return S.cardNumber;
-      try {
-        var pdoc = await db.collection('players').doc(uid).get();
-        if (pdoc.exists && pdoc.data().cardNumber) {
-          S.cardNumber = pdoc.data().cardNumber;
-          return S.cardNumber;
-        }
-      } catch (e) {}
-      for (var attempt = 0; attempt < 6; attempt++) {
-        var num = randomCardNumber();
-        try {
-          await db.collection('cards').doc(num).set({ uid: uid, username: username });
-          await db.collection('players').doc(uid).set({ cardNumber: num }, { merge: true });
-          S.cardNumber = num;
-          return num;
-        } catch (e) { /* شماره تکراری بود احتمالاً — دوباره امتحان کن */ }
-      }
-      return null;
-    }
+    function formatCard(num) { return String(num || '').replace(/(.{4})/g, '$1-').replace(/-$/, ''); }
 
     window.copyCardNumber = function (num) {
-      function fallbackCopy() {
+      function fallback() {
         try {
           var t = document.createElement('textarea');
           t.value = num; document.body.appendChild(t); t.select();
@@ -12800,9 +12940,7 @@ function getMiniEntryCost(kind) {
           toast('شماره کارت کپی شد');
         } catch (e) { toast(num); }
       }
-      try {
-        navigator.clipboard.writeText(num).then(function () { toast('شماره کارت کپی شد'); }).catch(fallbackCopy);
-      } catch (e) { fallbackCopy(); }
+      try { navigator.clipboard.writeText(num).then(function () { toast('شماره کارت کپی شد'); }).catch(fallback); } catch (e) { fallback(); }
     };
 
     var _lookupTimer = null;
@@ -12816,19 +12954,14 @@ function getMiniEntryCost(kind) {
       elOwner.textContent = 'در حال جستجو...';
       elOwner.style.color = 'var(--muted)';
       _lookupTimer = setTimeout(function () {
-        db.collection('cards').doc(raw).get().then(function (doc) {
+        api('lookup_card', { card: raw }, 'GET').then(function (resp) {
           var e2 = document.getElementById('c2cOwnerName');
           if (!e2) return;
-          if (doc.exists) {
-            e2.textContent = 'به نام: ' + (doc.data().username || 'ناشناس');
-            e2.style.color = 'var(--green)';
-          } else {
-            e2.textContent = 'کارتی با این شماره یافت نشد';
-            e2.style.color = '#ff6b7a';
-          }
+          e2.textContent = 'به نام: ' + (resp.username || 'ناشناس');
+          e2.style.color = 'var(--green)';
         }).catch(function () {
           var e2 = document.getElementById('c2cOwnerName');
-          if (e2) { e2.textContent = 'خطا در جستجو'; e2.style.color = '#ff6b7a'; }
+          if (e2) { e2.textContent = 'کارتی با این شماره یافت نشد'; e2.style.color = '#ff6b7a'; }
         });
       }, 450);
     };
@@ -12838,61 +12971,40 @@ function getMiniEntryCost(kind) {
       var raw = (document.getElementById('c2cDestCard').value || '').replace(/\D/g, '');
       var amt = Math.floor(Number(document.getElementById('c2cAmt').value || 0));
       function setMsg(t, color) { if (msg) { msg.textContent = t; msg.style.color = color; } }
-      if (!auth.currentUser) { setMsg('ابتدا وارد حساب شوید', '#ff6b7a'); return; }
+      if (!getToken()) { setMsg('ابتدا وارد حساب شوید', '#ff6b7a'); return; }
       if (raw.length < 16) { setMsg('شماره کارت معتبر نیست', '#ff6b7a'); return; }
       if (!amt || amt <= 0) { setMsg('مبلغ نامعتبر است', '#ff6b7a'); return; }
       if (amt > (S.cash || 0)) { setMsg('موجودی نقد کافی نیست', '#ff6b7a'); return; }
       if (raw === S.cardNumber) { setMsg('نمی‌توانید برای خودتان ارسال کنید', '#ff6b7a'); return; }
-
       setMsg('در حال ارسال...', 'var(--muted)');
       try {
-        var cardDoc = await db.collection('cards').doc(raw).get();
-        if (!cardDoc.exists) { setMsg('کارتی با این شماره یافت نشد', '#ff6b7a'); return; }
-        var toUid = cardDoc.data().uid;
-        var toUsername = cardDoc.data().username || 'ناشناس';
-        var fromUsername = (S.authSession && S.authSession.username) || '';
-
+        var resp = await api('transfer', { toCard: raw, amount: amt });
         S.cash = (S.cash || 0) - amt;
-        try { addTx('out', 'کارت به کارت به ' + toUsername, -amt); } catch (e) {}
+        try { addTx('out', 'کارت به کارت به ' + resp.toUsername, -amt); } catch (e) {}
         _origSave();
-        try { render(); renderBank(); } catch (e) {}
-
-        await db.collection('transfers').add({
-          fromUid: auth.currentUser.uid, fromUsername: fromUsername, fromCard: S.cardNumber,
-          toUid: toUid, toUsername: toUsername, toCard: raw,
-          amount: amt, status: 'pending',
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        queueCloudSave();
-
-        setMsg(fmt(amt) + ' به ' + toUsername + ' ارسال شد ✓', 'var(--green)');
+        try { render(); if (typeof renderBank === 'function') renderBank(); } catch (e) {}
+        setMsg(fmt(amt) + ' به ' + resp.toUsername + ' ارسال شد ✓', 'var(--green)');
         try { playSfx('success'); } catch (e) {}
         var amtInput = document.getElementById('c2cAmt');
         if (amtInput) amtInput.value = '';
       } catch (e) {
         console.error(e);
-        setMsg('خطا در ارسال — دوباره امتحان کنید', '#ff6b7a');
+        var map = { card_not_found: 'کارتی با این شماره یافت نشد' };
+        setMsg(map[e.code] || 'خطا در ارسال — دوباره امتحان کنید', '#ff6b7a');
       }
     };
 
-    window.showCardToCard = async function () {
-      if (!auth.currentUser) { toast('برای کارت‌به‌کارت باید وارد حساب کاربری شوید'); return; }
+    window.showCardToCard = function () {
+      if (!getToken()) { toast('برای کارت‌به‌کارت باید وارد حساب کاربری شوید'); return; }
       var title = document.getElementById('mTitle');
       var body = document.getElementById('mBody');
       var btns = document.getElementById('mBtns');
       if (!title) return;
       title.textContent = 'کارت به کارت';
-      body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">در حال آماده‌سازی...</div>';
       btns.innerHTML = '<button class="btn-sec" style="width:100%;padding:10px" onclick="closeModal()">بستن</button>';
       document.getElementById('modalBg').classList.add('show');
 
-      var uname = (S.authSession && S.authSession.username) || '';
-      var myCard = await ensureCardNumber(auth.currentUser.uid, uname);
-      if (!myCard) {
-        body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger,#EF4444)">خطا در ساخت شماره کارت. دوباره امتحان کنید.</div>';
-        return;
-      }
-
+      var myCard = S.cardNumber || '';
       var html = '';
       html += '<div class="fin-card full" style="margin-bottom:10px">';
       html += '<div class="lbl">شماره کارت شما</div>';
@@ -12900,86 +13012,24 @@ function getMiniEntryCost(kind) {
       html += '<div style="flex:1;font-weight:800;font-size:15px;direction:ltr;letter-spacing:1px;background:rgba(255,255,255,0.06);padding:10px;border-radius:10px;text-align:center">' + formatCard(myCard) + '</div>';
       html += '<button class="btn-sec" style="padding:10px 14px" onclick="copyCardNumber(\'' + myCard + '\')">کپی</button>';
       html += '</div></div>';
-
       html += '<div class="fin-card full" style="margin-bottom:10px">';
       html += '<div class="lbl">شماره کارت مقصد</div>';
       html += '<input id="c2cDestCard" type="text" inputmode="numeric" placeholder="شماره کارت ۱۶ رقمی" style="width:100%;margin-top:6px" oninput="lookupCardOwner()">';
       html += '<div id="c2cOwnerName" style="font-size:12px;margin-top:6px;min-height:16px"></div>';
       html += '</div>';
-
       html += '<div class="fin-card full" style="margin-bottom:10px">';
       html += '<div class="lbl">مبلغ</div>';
       html += '<input id="c2cAmt" type="number" placeholder="مبلغ (نقد)" style="width:100%;margin-top:6px">';
       html += '<div style="font-size:11px;color:var(--muted);margin-top:6px">موجودی نقد شما: ' + fmt(S.cash || 0) + '</div>';
       html += '</div>';
-
       html += '<button class="btn-up" style="width:100%;padding:12px" onclick="sendCardToCard()">ارسال وجه</button>';
       html += '<div id="c2cMsg" style="font-size:12px;margin-top:8px;text-align:center;min-height:16px"></div>';
-
       body.innerHTML = html;
     };
 
-    async function checkIncomingTransfers() {
-      if (!auth.currentUser) return;
-      try {
-        var snap = await db.collection('transfers')
-          .where('toUid', '==', auth.currentUser.uid)
-          .where('status', '==', 'pending')
-          .limit(20).get();
-        if (snap.empty) return;
-        var totalReceived = 0;
-        var fromNames = [];
-        var updates = [];
-        snap.forEach(function (d) {
-          var t = d.data();
-          totalReceived += (t.amount || 0);
-          fromNames.push(t.fromUsername || 'ناشناس');
-          updates.push(d.ref.update({ status: 'completed' }));
-        });
-        if (totalReceived > 0) {
-          S.cash = (S.cash || 0) + totalReceived;
-          try { addTx('in', 'کارت به کارت از ' + fromNames.join('، '), totalReceived); } catch (e) {}
-          _origSave();
-          try { render(); renderBank(); } catch (e) {}
-          try { toast(fmt(totalReceived) + ' کارت‌به‌کارت از ' + fromNames.join('، ') + ' دریافت شد'); } catch (e) {}
-        }
-        await Promise.all(updates);
-      } catch (e) { console.error('checkIncomingTransfers failed', e); }
-    }
-
-    // ---------- سیستم دعوت از دوستان ----------
-    var REFERRAL_REWARD = 50000;
-
-    async function applyReferralIfAny(newUsername) {
-      var codeRaw = '';
-      try {
-        var inp = document.getElementById('regInviteCode');
-        codeRaw = (inp && inp.value ? inp.value : '') || localStorage.getItem('aether_pending_ref') || '';
-      } catch (e) {}
-      codeRaw = String(codeRaw || '').trim();
-      if (!codeRaw) return;
-      if (codeRaw.toLowerCase() === newUsername.toLowerCase()) {
-        try { localStorage.removeItem('aether_pending_ref'); } catch (e) {}
-        return;
-      }
-      try {
-        var refDoc = await db.collection('usernames').doc(codeRaw.toLowerCase()).get();
-        if (!refDoc.exists) { try { localStorage.removeItem('aether_pending_ref'); } catch (e) {} return; }
-        var referrerUid = refDoc.data().uid;
-        var referrerUsername = refDoc.data().username || codeRaw;
-        if (!auth.currentUser || referrerUid === auth.currentUser.uid) return;
-        await db.collection('transfers').add({
-          fromUid: auth.currentUser.uid, fromUsername: 'پاداش دعوت (' + newUsername + ')',
-          toUid: referrerUid, toUsername: referrerUsername,
-          amount: REFERRAL_REWARD, status: 'pending',
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        try { localStorage.removeItem('aether_pending_ref'); } catch (e) {}
-      } catch (e) { console.error('referral apply failed', e); }
-    }
-
+    // ---------- دعوت از دوستان ----------
     window.showInviteFriends = function () {
-      if (!auth.currentUser) { toast('برای دعوت دوستان باید وارد حساب کاربری شوید'); return; }
+      if (!getToken()) { toast('برای دعوت دوستان باید وارد حساب کاربری شوید'); return; }
       var title = document.getElementById('mTitle');
       var body = document.getElementById('mBody');
       var btns = document.getElementById('mBtns');
@@ -13001,7 +13051,6 @@ function getMiniEntryCost(kind) {
       btns.innerHTML = '<button class="btn-sec" style="width:100%;padding:10px" onclick="closeModal()">بستن</button>';
       document.getElementById('modalBg').classList.add('show');
     };
-
     window.copyInviteLink = function (link) {
       function fallback() {
         try {
@@ -13013,7 +13062,6 @@ function getMiniEntryCost(kind) {
       }
       try { navigator.clipboard.writeText(link).then(function () { toast('لینک کپی شد'); }).catch(fallback); } catch (e) { fallback(); }
     };
-
     window.shareInviteLink = function (link) {
       if (navigator.share) {
         navigator.share({ title: 'غول اقتصادی', text: 'بیا با من غول اقتصادی بازی کن!', url: link }).catch(function () {});
@@ -13022,270 +13070,6 @@ function getMiniEntryCost(kind) {
       }
     };
 
-    function scoreForLeaderboard() {
-      try {
-        var w = (typeof getNetWorth === 'function') ? getNetWorth() : (S.cash || 0);
-        return Math.max(0, Math.floor(w || 0));
-      } catch (e) { return Math.max(0, Math.floor(S.cash || 0)); }
-    }
-
-    var _cloudSaveTimer = null;
-    var _lastCloudSaveAt = 0;
-
-    function pushCloudSaveNow() {
-      var user = auth.currentUser;
-      if (!user) return;
-      try {
-        var payload = sanitizeForFirestore(buildGamePayloadFromS());
-        db.collection('players').doc(user.uid).set(payload, { merge: true }).catch(function (e) {
-          console.error('cloud save failed', e);
-        });
-        db.collection('leaderboard').doc(user.uid).set({
-          username: S.name || (S.authSession && S.authSession.username) || 'بازیکن',
-          score: scoreForLeaderboard(),
-          level: S.level || 1,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true }).catch(function (e) {
-          console.error('leaderboard save failed', e);
-        });
-        _lastCloudSaveAt = Date.now();
-      } catch (e) { console.error(e); }
-    }
-
-    function queueCloudSave() {
-      if (!auth.currentUser) return;
-      var elapsed = Date.now() - _lastCloudSaveAt;
-      if (elapsed >= CLOUD_SAVE_MIN_INTERVAL) {
-        pushCloudSaveNow();
-      } else if (!_cloudSaveTimer) {
-        _cloudSaveTimer = setTimeout(function () {
-          _cloudSaveTimer = null;
-          pushCloudSaveNow();
-        }, CLOUD_SAVE_MIN_INTERVAL - elapsed);
-      }
-    }
-
-    // هر بار save() محلی صدا زده شد، یک ذخیره ابری (محدودشده) هم صف بشود
-    var _origSave = save;
-    save = function () {
-      _origSave();
-      try { queueCloudSave(); } catch (e) {}
-    };
-
-    window.addEventListener('beforeunload', function () {
-      if (auth.currentUser) pushCloudSaveNow();
-    });
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden && auth.currentUser) pushCloudSaveNow();
-    });
-
-    // ---------- ثبت‌نام ----------
-    registerAccountUI = async function () {
-      var user = (document.getElementById('regUser').value || '').trim();
-      var pass = document.getElementById('regPass').value || '';
-      var pass2 = document.getElementById('regPass2').value || '';
-      var err = document.getElementById('regErr');
-      err.textContent = '';
-      if (!user) { err.textContent = 'نام کاربری را وارد کنید.'; return; }
-      if (!/^[a-zA-Z0-9_]{3,20}$/.test(user)) { err.textContent = 'نام کاربری باید ۳ تا ۲۰ کاراکتر (حروف/عدد انگلیسی) باشد.'; return; }
-      if (pass.length < 8) { err.textContent = 'رمز عبور باید حداقل ۸ کاراکتر باشد.'; return; }
-      if (pass !== pass2) { err.textContent = 'رمزهای عبور یکسان نیستند.'; return; }
-      try {
-        showAuthLoading('در حال ساخت حساب...');
-        var cred = await auth.createUserWithEmailAndPassword(usernameToEmail(user), pass);
-        var uid = cred.user.uid;
-        var gamePayload = buildGamePayloadFromS();
-        var curName = gamePayload.name;
-        gamePayload.name = (curName && curName !== 'آریا' && curName !== 'بازیکن') ? curName : user;
-        gamePayload.authSession = { accountId: uid, username: user, loggedIn: true };
-        gamePayload = sanitizeForFirestore(gamePayload);
-        await db.collection('players').doc(uid).set(gamePayload, { merge: true });
-        var _pScore = 0;
-        try {
-          Object.keys((gamePayload.partnerships||S.partnerships||{})).forEach(function(id){
-            var pp = (gamePayload.partnerships||S.partnerships)[id];
-            if (pp && pp.status==='active') _pScore += (pp.investOwner||0)+(pp.investPartner||0);
-          });
-        } catch(ePS) {}
-        await db.collection('leaderboard').doc(uid).set({
-          username: user, score: scoreForLeaderboard(), partnerScore: _pScore, level: gamePayload.level || 1,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        setSession(uid, user);
-        applyPayloadToS(gamePayload);
-        S.name = gamePayload.name;
-        S.authSession = { accountId: uid, username: user, loggedIn: true };
-        _origSave();
-        hideAuthOverlay();
-        try { updateProfileAccountBox(); render(); } catch (e) {}
-        try { toast('حساب ساخته شد — خوش آمدید ' + user); } catch (e) {}
-        try { await ensureCardNumber(uid, user); } catch (e) {}
-        try {
-          await db.collection('usernames').doc(user.toLowerCase()).set({ uid: uid, username: user });
-        } catch (e) {}
-        try { await applyReferralIfAny(user); } catch (e) {}
-      } catch (e) {
-        console.error(e);
-        // اگه حساب توی Authentication واقعاً ساخته شده بود (فقط مرحله‌ی بعدش خطا داد)،
-        // به‌جای نمایش خطا، کاربر رو وارد بازی می‌کنیم تا گیر نکنه
-        if (auth.currentUser && auth.currentUser.uid) {
-          try {
-            var uid2 = auth.currentUser.uid;
-            setSession(uid2, user);
-            S.name = S.name || user;
-            S.authSession = { accountId: uid2, username: user, loggedIn: true };
-            _origSave();
-            hideAuthOverlay();
-            try { updateProfileAccountBox(); render(); } catch (e2) {}
-            try { toast('حساب ساخته شد — خوش آمدید ' + user); } catch (e2) {}
-            try { queueCloudSave(); } catch (e2) {}
-            return;
-          } catch (e3) { console.error(e3); }
-        }
-        showAuthRegister();
-        if (e && e.code === 'auth/email-already-in-use') err.textContent = 'این نام کاربری قبلاً استفاده شده است.';
-        else if (e && e.code === 'auth/network-request-failed') err.textContent = 'خطای اتصال اینترنت — دوباره تلاش کنید.';
-        else err.textContent = 'خطایی هنگام ساخت حساب رخ داد.';
-      }
-    };
-
-    // ---------- ورود ----------
-    loginAccountUI = async function () {
-      var user = (document.getElementById('loginUser').value || '').trim();
-      var pass = document.getElementById('loginPass').value || '';
-      var err = document.getElementById('loginErr');
-      err.textContent = '';
-      if (!user || !pass) { err.textContent = 'نام کاربری یا رمز عبور اشتباه است.'; return; }
-      try {
-        showAuthLoading('در حال ورود...');
-        var cred = await auth.signInWithEmailAndPassword(usernameToEmail(user), pass);
-        var uid = cred.user.uid;
-        var doc = await db.collection('players').doc(uid).get();
-        var gs = doc.exists ? doc.data() : defaultNewGameState();
-        applyPayloadToS(gs);
-        if (!S.name) S.name = user;
-        setSession(uid, user);
-        S.authSession = { accountId: uid, username: user, loggedIn: true };
-        _origSave();
-        hideAuthOverlay();
-        try { updateProfileAccountBox(); render(); } catch (e) {}
-        try { toast('خوش آمدید، ' + user); } catch (e) {}
-        try { await ensureCardNumber(uid, user); checkIncomingTransfers(); } catch (e) {}
-      } catch (e) {
-        console.error(e);
-        showAuthLogin();
-        err.textContent = 'نام کاربری یا رمز عبور اشتباه است.';
-      }
-    };
-
-    // ---------- خروج ----------
-    logoutAccount = function () {
-      try { if (auth.currentUser) pushCloudSaveNow(); } catch (e) {}
-      try { auth.signOut(); } catch (e) {}
-      try { S.authSession = { loggedIn: false, accountId: '', username: '' }; } catch (e) {}
-      clearSession();
-      try { _origSave(); } catch (e) {}
-      hideAuthOverlay();
-      try { updateProfileAccountBox(); render(); } catch (e) {}
-      try { toast('از حساب خارج شدید — می‌توانید مهمان ادامه دهید'); } catch (e) {}
-    };
-
-    // اگر فایربیس یک نشست معتبر (از قبل) دارد، وضعیت ابری را نسبت به محلی ارجح بدان
-    auth.onAuthStateChanged(function (user) {
-      if (!user) return;
-      var uname = (user.email || '').split('@')[0];
-      db.collection('players').doc(user.uid).get().then(function (doc) {
-        if (!doc.exists) return;
-        applyPayloadToS(doc.data());
-        if (!S.name) S.name = uname;
-        setSession(user.uid, uname);
-        S.authSession = { accountId: user.uid, username: uname, loggedIn: true };
-        _origSave();
-        try { updateProfileAccountBox(); render(); } catch (e) {}
-        try { ensureCardNumber(user.uid, uname); checkIncomingTransfers(); } catch (e) {}
-      }).catch(function (e) { console.error('cloud fetch failed', e); });
-    });
-
-    // هر ۳۰ ثانیه یک بار وجوه کارت‌به‌کارتِ در انتظار رو چک کن
-    setInterval(function () { checkIncomingTransfers(); }, 30000);
-
-    // ---------- لیدربورد آنلاین (همه بازیکنان) ----------
-    showLeaderboard = function (tab) {
-      tab = tab || 'wealth';
-      var title = document.getElementById('mTitle');
-      var body = document.getElementById('mBody');
-      var btns = document.getElementById('mBtns');
-      if (!title) return;
-      title.textContent = 'لیدربورد آنلاین';
-      var tabs = '<div style="display:flex;gap:8px;margin-bottom:12px">' +
-        '<button class="btn-sec" style="flex:1;padding:10px' + (tab==='wealth' ? ';border-color:var(--primary);color:var(--primary)' : '') + '" onclick="showLeaderboard(\'wealth\')">ثروت</button>' +
-        '<button class="btn-sec" style="flex:1;padding:10px' + (tab==='partner' ? ';border-color:var(--primary);color:var(--primary)' : '') + '" onclick="showLeaderboard(\'partner\')">شراکت</button></div>';
-      body.innerHTML = tabs + '<div style="text-align:center;padding:24px;color:var(--muted)">در حال بارگذاری...</div>';
-      btns.innerHTML = '<button class="btn-sec" style="width:100%;padding:10px" onclick="closeModal()">بستن</button>';
-      document.getElementById('modalBg').classList.add('show');
-
-      function renderRows(snap, scoreKey, emptyMsg) {
-        var myUid = auth.currentUser ? auth.currentUser.uid : null;
-        var html = tabs;
-        html += '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">' + (tab==='partner' ? 'رتبه‌بندی بر اساس <b>سرمایه کسب‌وکارهای شراکتی</b>' : 'رتبه‌بندی بر اساس <b>ثروت کل</b>') + '</div>';
-        if (!snap || snap.empty) {
-          html += '<div style="text-align:center;padding:20px;color:var(--muted)">' + emptyMsg + '</div>';
-        } else {
-          var i = 0;
-          snap.forEach(function (d) {
-            i++;
-            var p = d.data();
-            var isMe = myUid && d.id === myUid;
-            var bg = isMe ? 'rgba(0,229,160,0.15)' : 'rgba(255,255,255,0.04)';
-            var border = isMe ? 'border:1px solid rgba(0,229,160,0.35);' : '';
-            var sc = p[scoreKey] != null ? p[scoreKey] : (p.score || 0);
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;margin:6px 0;background:' + bg + ';border-radius:12px;' + border + '">';
-            html += '<span style="font-weight:' + (isMe ? '700' : '500') + '">' + i + '. ' + escHtml(p.username || 'بازیکن') + '</span>';
-            html += '<span style="color:var(--green);font-weight:700;direction:ltr">' + fmt(sc || 0) + '</span></div>';
-          });
-        }
-        body.innerHTML = html;
-      }
-
-      if (tab === 'partner') {
-        // local fallback + cloud partnerScore
-        try {
-          var localScore = 0;
-          Object.keys(S.partnerships || {}).forEach(function(id) {
-            var p = S.partnerships[id];
-            if (p && p.status === 'active') localScore += (p.investOwner||0)+(p.investPartner||0);
-          });
-          if (auth.currentUser) {
-            db.collection('leaderboard').doc(auth.currentUser.uid).set({
-              partnerScore: localScore,
-              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true }).catch(function(){});
-          }
-        } catch(e) {}
-        db.collection('leaderboard').orderBy('partnerScore', 'desc').limit(50).get().then(function(snap) {
-          renderRows(snap, 'partnerScore', 'هنوز شراکت فعالی ثبت نشده');
-        }).catch(function() {
-          // fallback: show local only
-          var html = tabs + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">نمایش محلی (کلود در دسترس نیست)</div>';
-          var rows = [];
-          var sc = 0;
-          Object.keys(S.partnerships || {}).forEach(function(id) {
-            var p = S.partnerships[id];
-            if (p && p.status === 'active') sc += (p.investOwner||0)+(p.investPartner||0);
-          });
-          html += '<div style="padding:10px 12px;margin:6px 0;background:rgba(0,229,160,0.15);border-radius:12px;display:flex;justify-content:space-between"><span>1. ' + escHtml(getMyPartnerName()) + '</span><span style="color:var(--green);font-weight:700">' + fmt(sc) + '</span></div>';
-          body.innerHTML = html;
-        });
-      } else {
-        db.collection('leaderboard').orderBy('score', 'desc').limit(50).get().then(function (snap) {
-          renderRows(snap, 'score', 'هنوز کسی ثبت نشده — اولین نفر باش!');
-        }).catch(function (e) {
-          console.error(e);
-          body.innerHTML = tabs + '<div style="text-align:center;padding:20px;color:var(--danger,#EF4444)">خطا در بارگذاری لیدربورد</div>';
-        });
-      }
-    };
-    } // end initCloudFeatures
 
     
     
@@ -14077,13 +13861,6 @@ function getMiniEntryCost(kind) {
     } catch (eExp) { console.warn('partner export', eExp); }
 
 
-    loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js')
-      .then(function () { return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'); })
-      .then(function () { return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'); })
-      .then(function () { initCloudFeatures(); })
-      .catch(function (e) {
-        console.warn('Firebase در دسترس نبود — بازی به‌صورت محلی ادامه می‌دهد.', e);
-      });
   })();
   </script>
 
