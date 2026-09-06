@@ -2850,6 +2850,7 @@
           <button class="btn-sec tab-asset active" data-tab="vehicles" onclick="switchAssetTab('vehicles')">وسایل نقلیه</button>
           <button class="btn-sec tab-asset" data-tab="properties" onclick="switchAssetTab('properties')">املاک</button>
           <button class="btn-sec tab-asset" data-tab="personal" onclick="switchAssetTab('personal')">لوازم شخصی</button>
+          <button class="btn-sec tab-asset" data-tab="clothing" onclick="switchAssetTab('clothing')">پوشاک</button>
           <button class="btn-sec tab-asset" data-tab="luxury" onclick="switchAssetTab('luxury')">لوکس</button>
           <button class="btn-sec tab-asset" data-tab="invests" onclick="switchAssetTab('invests')">سرمایه‌گذاری</button>
         </div>
@@ -4916,6 +4917,46 @@ const ASSETS = {
         { id:'art_painting', img:'lux_art_painting', name:'تابلوی هنری موزه‌ای', icon:'🖼️', price:14000000, sellRate:1.05, grows:true, desc:'اثر هنری کمیاب' },
         { id:'wine_cellar', img:'lux_wine_cellar', name:'انبار شراب لوکس', icon:'🍷', price:3120000, sellRate:1.02, grows:true, desc:'کلکسیون شراب' },
         { id:'private_island_share', img:'lux_private_island_share', name:'سهم جزیره خصوصی', icon:'🏝️', price:70000000, sellRate:0.95, grows:true, desc:'سرمایه‌گذاری ملکی خاص' },
+      ],
+
+      clothing: [
+        { id:'cloth_tee_basic', name:'تی‌شرت ساده نخی', icon:'👕', price:45000, sellRate:0.4, desc:'لباس روزمره' },
+        { id:'cloth_shirt_formal', name:'پیراهن رسمی', icon:'👔', price:180000, sellRate:0.45, desc:'مناسب محیط کار' },
+        { id:'cloth_hoodie', name:'هودی اسپرت', icon:'🧥', price:220000, sellRate:0.42, desc:'راحت و شهری' },
+        { id:'cloth_suit_entry', name:'کت‌وشلوار اداری', icon:'🤵', price:850000, sellRate:0.5, desc:'استایل رسمی' },
+        { id:'cloth_suit_premium', name:'کت‌وشلوار ایتالیایی', icon:'🤵', price:4200000, sellRate:0.55, desc:'دوخت سفارشی' },
+        { id:'cloth_dress_casual', name:'مانتو / لباس روزمره', icon:'👗', price:320000, sellRate:0.4, desc:'استایل روز' },
+        { id:'cloth_dress_evening', name:'لباس مجلسی', icon:'👗', price:2800000, sellRate:0.45, desc:'شب و مهمانی' },
+        { id:'shoe_sneaker', name:'کفش ورزشی روزمره', icon:'👟', price:280000, sellRate:0.4, desc:'پیاده‌روی شهری' },
+        { id:'shoe_run', name:'کفش دویدن حرفه‌ای', icon:'👟', price:650000, sellRate:0.42, desc:'سبک و مقاوم' },
+        { id:'shoe_leather', name:'کفش چرم رسمی', icon:'👞', price:980000, sellRate:0.48, desc:'اداری و رسمی' },
+        { id:'shoe_luxury', name:'کفش لوکس برند', icon:'🥾', price:5500000, sellRate:0.55, desc:'چرم وارداتی' },
+        { id:'hat_cap', name:'کلاه کپ', icon:'🧢', price:95000, sellRate:0.35, desc:'روزمره' },
+        { id:'hat_beanie', name:'کلاه بافت زمستانی', icon:'🧶', price:120000, sellRate:0.35, desc:'گرم' },
+        { id:'hat_fedora', name:'کلاه فدورا', icon:'🎩', price:480000, sellRate:0.45, desc:'کلاسیک' },
+        { id:'glasses_sun', name:'عینک آفتابی', icon:'🕶️', price:350000, sellRate:0.4, desc:'حفاظت UV' },
+        { id:'glasses_optic', name:'عینک طبی فریم فلزی', icon:'👓', price:520000, sellRate:0.4, desc:'روزمره' },
+        { id:'glasses_brand', name:'عینک برند لوکس', icon:'🕶️', price:3800000, sellRate:0.5, desc:'طراحی محدود' },
+        { id:'bag_backpack', name:'کوله پشتی شهری', icon:'🎒', price:290000, sellRate:0.4, desc:'روزانه' },
+        { id:'bag_leather', name:'کیف چرم دستی', icon:'👜', price:1400000, sellRate:0.48, desc:'اداری' },
+        { id:'scarf_silk', name:'شال ابریشمی', icon:'🧣', price:680000, sellRate:0.45, desc:'لوکس سبک' },
+        { id:'watch_strap_leather', name:'بند ساعت چرم', icon:'⌚', price:240000, sellRate:0.4, desc:'اکسسوری' },
+        { id:'belt_leather', name:'کمربند چرم', icon:'🪢', price:180000, sellRate:0.4, desc:'رسمی' },
+        { id:'jacket_leather', name:'کت چرم', icon:'🧥', price:3200000, sellRate:0.5, desc:'استایل خیابانی' },
+        { id:'jacket_winter', name:'پالتو زمستانی', icon:'🧥', price:2100000, sellRate:0.45, desc:'گرم و شیک' },
+        { id:'cloth_tshirt_brand', name:'تی‌شرت برند', icon:'👕', price:480000, sellRate:0.4, desc:'چاپی محدود' },
+        { id:'cloth_polo', name:'پولوشرت کلاسیک', icon:'👔', price:390000, sellRate:0.42, desc:'نیمه‌رسمی' },
+        { id:'cloth_jeans', name:'شلوار جین', icon:'👖', price:420000, sellRate:0.4, desc:'روزمره' },
+        { id:'cloth_chinos', name:'شلوار کتان رسمی', icon:'👖', price:560000, sellRate:0.45, desc:'اداری' },
+        { id:'shoe_boots', name:'بوت چرم', icon:'👢', price:1800000, sellRate:0.48, desc:'پاییز و زمستان' },
+        { id:'shoe_heels', name:'کفش مجلسی', icon:'👠', price:1200000, sellRate:0.45, desc:'مهمانی' },
+        { id:'hat_snapback', name:'کلاه اسنپ‌بک', icon:'🧢', price:210000, sellRate:0.35, desc:'خیابانی' },
+        { id:'glasses_sport', name:'عینک ورزشی', icon:'🥽', price:450000, sellRate:0.4, desc:'دوچرخه و دو' },
+        { id:'bag_tote', name:'کیف پارچه‌ای بزرگ', icon:'🛍️', price:180000, sellRate:0.35, desc:'روزانه' },
+        { id:'acc_ring', name:'انگشتر استیل', icon:'💍', price:320000, sellRate:0.4, desc:'اکسسوری ساده' },
+        { id:'acc_necklace', name:'گردنبند نقره‌ای', icon:'📿', price:890000, sellRate:0.45, desc:'ظریف' },
+        { id:'cloth_tracksuit', name:'ست ورزشی', icon:'🥋', price:750000, sellRate:0.42, desc:'تمرین و راحتی' },
+        { id:'cloth_abaya', name:'عبا / چادر مجلسی', icon:'🧕', price:1600000, sellRate:0.45, desc:'رسمی' }
       ],
       invests: [
         { id:'stock', img:'inv_stock', name:'اوراق بهادار', icon:'📈', price:115500, sellRate:0.95, grows:true, stackable:true, desc:'سبد سهام پایه' },
@@ -12706,8 +12747,9 @@ function getMiniEntryCost(kind) {
       { id: 'vehicles', label: 'وسیله نقلیه', emoji: '🚗' },
       { id: 'properties', label: 'ملک', emoji: '🏠' },
       { id: 'personal', label: 'لوازم شخصی', emoji: '⌚' },
+      { id: 'clothing', label: 'پوشاک', emoji: '👔' },
       { id: 'luxury', label: 'کالای لوکس', emoji: '💎' },
-      { id: 'invest', label: 'سرمایه‌گذاری', emoji: '📈' }
+      { id: 'invests', label: 'سرمایه‌گذاری', emoji: '📈' }
     ];
 
     function ensureShowcaseState() {
